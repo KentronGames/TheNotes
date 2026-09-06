@@ -89,6 +89,10 @@ Two objects, split by who owns the answer:
   user as well: the contrast that reads over a bright blockout is not the one that reads over a night
   scene, and a preference like that must never dirty a file the team shares.
 
+A note's mark takes the narrowest colour that applies to it: its own, if the note overrides one in the
+details panel; otherwise the colour its collection is given in **Collection Icon Tints**; otherwise the
+general **Note Icon Tint**. Turning a note's override off hands it back to its collection.
+
 Pointing **Note Actor Class** at your own subclass is how a project with its own interaction or selection
 system gets its components onto a note; the plugin never names another module's types.
 

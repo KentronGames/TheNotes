@@ -45,9 +45,10 @@ void ATheNote::OnConstruction(const FTransform& Transform)
         UTexture2D* Sprite = Settings ? Settings->NoteSprite.LoadSynchronous() : nullptr;
         if(!Sprite)
         {
-            // The collection decides the colour, so this runs on every construction rather than once:
-            // retyping a note's collection has to move its mark to the other colour.
-            Sprite = FTheNotesModule::SpriteTinted(UTheNotesSettings::ResolvedIconTint(Record.Collection));
+            // Narrowest answer first: this note's own colour, then its collection's, then the project's.
+            // Run on every construction rather than once, because retyping either has to move the mark.
+            const FColor Tint = Record.bOverrideIconTint ? Record.IconTint : UTheNotesSettings::ResolvedIconTint(Record.Collection);
+            Sprite = FTheNotesModule::SpriteTinted(Tint);
         }
         if(Sprite)
         {

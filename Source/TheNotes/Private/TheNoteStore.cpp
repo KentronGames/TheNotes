@@ -16,20 +16,23 @@
 
 namespace TheNoteStoreKeys
 {
-    static const TCHAR* Author = TEXT("author");
-    static const TCHAR* Level = TEXT("level");
-    static const TCHAR* Notes = TEXT("notes");
-    static const TCHAR* Id = TEXT("id");
-    static const TCHAR* Title = TEXT("title");
-    static const TCHAR* Body = TEXT("body");
-    static const TCHAR* Collection = TEXT("collection");
-    static const TCHAR* Location = TEXT("location");
-    static const TCHAR* X = TEXT("x");
-    static const TCHAR* Y = TEXT("y");
-    static const TCHAR* Z = TEXT("z");
-    static const TCHAR* ShowInGame = TEXT("showInGame");
-    static const TCHAR* CreatedAt = TEXT("createdAt");
-    static const TCHAR* UpdatedAt = TEXT("updatedAt");
+static const TCHAR* Author = TEXT("author");
+static const TCHAR* Level = TEXT("level");
+static const TCHAR* Notes = TEXT("notes");
+static const TCHAR* Id = TEXT("id");
+static const TCHAR* Title = TEXT("title");
+static const TCHAR* Body = TEXT("body");
+static const TCHAR* Collection = TEXT("collection");
+static const TCHAR* Location = TEXT("location");
+static const TCHAR* X = TEXT("x");
+static const TCHAR* Y = TEXT("y");
+static const TCHAR* Z = TEXT("z");
+static const TCHAR* ShowInGame = TEXT("showInGame");
+// Written only by a note that overrides its colour, so its PRESENCE is the override flag and a file
+// of ordinary notes gains no line. Hex, because that is the form a person reading a diff recognises.
+static const TCHAR* IconTint = TEXT("iconTint");
+static const TCHAR* CreatedAt = TEXT("createdAt");
+static const TCHAR* UpdatedAt = TEXT("updatedAt");
 }
 
 FString FTheNoteStore::LevelFileName(const FString& LevelPackageName)
@@ -130,6 +133,13 @@ bool FTheNoteStore::LoadFile(const FString& FilePath, TArray<FTheNoteRecord>& Ou
         (*Entry)->TryGetStringField(TheNoteStoreKeys::Collection, Record.Collection);
         (*Entry)->TryGetBoolField(TheNoteStoreKeys::ShowInGame, Record.bShowInGame);
 
+        FString TintText;
+        if((*Entry)->TryGetStringField(TheNoteStoreKeys::IconTint, TintText))
+        {
+            Record.bOverrideIconTint = true;
+            Record.IconTint = FColor::FromHex(TintText);
+        }
+
         const TSharedPtr<FJsonObject>* LocationObject = nullptr;
         if((*Entry)->TryGetObjectField(TheNoteStoreKeys::Location, LocationObject) && LocationObject)
         {
@@ -169,10 +179,7 @@ bool FTheNoteStore::SaveFile(const FString& FilePath, const FString& Author, con
     // Sorted by identity, so that the order of notes in the file does not depend on the order the
     // editor happened to spawn actors in. An unstable order turns every save into a diff.
     TArray<FTheNoteRecord> Sorted = Records;
-    Sorted.Sort([](const FTheNoteRecord& A, const FTheNoteRecord& B)
-    {
-        return A.Id.ToString(EGuidFormats::DigitsWithHyphens) < B.Id.ToString(EGuidFormats::DigitsWithHyphens);
-    });
+    Sorted.Sort([](const FTheNoteRecord& A, const FTheNoteRecord& B) { return A.Id.ToString(EGuidFormats::DigitsWithHyphens) < B.Id.ToString(EGuidFormats::DigitsWithHyphens); });
 
     TArray<TSharedPtr<FJsonValue>> Notes;
     Notes.Reserve(Sorted.Num());
@@ -191,6 +198,10 @@ bool FTheNoteStore::SaveFile(const FString& FilePath, const FString& Author, con
         Entry->SetObjectField(TheNoteStoreKeys::Location, LocationObject);
 
         Entry->SetBoolField(TheNoteStoreKeys::ShowInGame, Record.bShowInGame);
+        if(Record.bOverrideIconTint)
+        {
+            Entry->SetStringField(TheNoteStoreKeys::IconTint, Record.IconTint.ToHex());
+        }
         Entry->SetStringField(TheNoteStoreKeys::CreatedAt, Record.CreatedAt.ToIso8601());
         Entry->SetStringField(TheNoteStoreKeys::UpdatedAt, Record.UpdatedAt.ToIso8601());
         Notes.Add(MakeShared<FJsonValueObject>(Entry));
