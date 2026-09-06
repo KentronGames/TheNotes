@@ -24,6 +24,9 @@ public class TheNotes : ModuleRules
         // store format and Projects resolves the project directory the store is anchored to.
         PrivateDependencyModuleNames.AddRange(new string[]
         {
+            // ImageCore, not Engine: FImageUtils is Engine's, but the FImage it hands back — and the
+            // format conversion the icon tint needs before it can touch bytes — live here.
+            "ImageCore",
             "Json",
             "Projects"
         });

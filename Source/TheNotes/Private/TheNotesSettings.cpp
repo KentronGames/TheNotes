@@ -12,6 +12,7 @@ UTheNotesSettings::UTheNotesSettings()
 {
     CategoryName = TEXT("Plugins");
     NotesDirectory = DefaultNotesDirectory();
+    NoteIconTint = DefaultIconTint();
 
     // Left empty: unset means the plugin's own mark, read from its Resources folder as a PNG.
     // A project that wants a different one names a texture here and nothing else changes.

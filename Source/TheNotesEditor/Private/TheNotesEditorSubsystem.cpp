@@ -128,6 +128,15 @@ void UTheNotesEditorSubsystem::HandleObjectPropertyChanged(UObject* Object, FPro
     if(!bApplyingStore && Cast<ATheNote>(Object))
     {
         MarkDirty();
+        return;
+    }
+
+    // A note is built from the settings at spawn — its sprite most of all, whose colour is baked into the
+    // pixels. Standing actors would otherwise keep the old look until the map was opened again, which
+    // reads as a setting that does nothing.
+    if(Cast<UTheNotesSettings>(Object))
+    {
+        bReloadRequested = true;
     }
 }
 
@@ -162,9 +171,9 @@ bool UTheNotesEditorSubsystem::HandleTick(float DeltaTime)
         return true;
     }
 
-    if(bStoreChangedExternally)
+    if(bReloadRequested)
     {
-        bStoreChangedExternally = false;
+        bReloadRequested = false;
         ReloadFromStore();
     }
     return true;
@@ -177,7 +186,7 @@ void UTheNotesEditorSubsystem::HandleStoreDirectoryChanged(const TArray<FFileCha
         return;
     }
 
-    bStoreChangedExternally = true;
+    bReloadRequested = true;
 }
 
 void UTheNotesEditorSubsystem::StartWatchingStore()

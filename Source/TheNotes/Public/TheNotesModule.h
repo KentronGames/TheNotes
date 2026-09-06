@@ -25,4 +25,7 @@ public:
 
 private:
     TStrongObjectPtr<class UTexture2D> Sprite;
+
+    /** The tint the held texture was built with — what tells the next call whether it is still current. */
+    FColor SpriteTint = FColor::Transparent;
 };

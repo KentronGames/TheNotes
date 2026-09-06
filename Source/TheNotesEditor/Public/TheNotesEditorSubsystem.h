@@ -104,8 +104,12 @@ private:
     /** The directory the watch is registered on. Empty means nothing is being watched. */
     FString WatchedDirectory;
 
-    /** Raised by the watcher, acted on by the ticker, so a burst of file events costs one reload. */
-    bool bStoreChangedExternally = false;
+    /**
+     * Raised when the spawned actors have to be built again, acted on by the ticker so a burst costs one
+     * reload. Two causes: the files changed under us, or a setting that decides what a note looks like
+     * did — the mark's colour lives in its pixels, so the standing actors hold the old texture.
+     */
+    bool bReloadRequested = false;
 
     /**
      * When this subsystem last wrote the store, on the platform clock.

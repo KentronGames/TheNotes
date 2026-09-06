@@ -18,10 +18,14 @@ class THENOTES_API UTheNotesSettings : public UDeveloperSettings
 public:
     UTheNotesSettings();
 
-    static const TCHAR* DefaultNotesDirectory()
-    {
-        return TEXT("DevNotes");
-    }
+    static const TCHAR* DefaultNotesDirectory() { return TEXT("DevNotes"); }
+
+    /**
+     * The amber the plugin's own mark ships as. It is also the tint's default, which is what makes the
+     * default the IDENTITY: the shift below is by the difference from this colour, so leaving the setting
+     * alone changes no pixel.
+     */
+    static FColor DefaultIconTint() { return FColor(253, 151, 31); }
 
     /**
      * Where note files are kept, relative to the project directory. Deliberately outside Content:
@@ -38,6 +42,16 @@ public:
      */
     UPROPERTY(EditAnywhere, config, Category = "Notes")
     TSoftObjectPtr<UTexture2D> NoteSprite;
+
+    /**
+     * What colour the plugin's own mark is drawn in. Shared by the team rather than set per developer:
+     * the icon is how everyone recognises a note across a scene, so it belongs with the sprite itself.
+     *
+     * Applies to the built-in mark only. A project that names its own Note Sprite colours that texture
+     * when it makes it, and this setting leaves it alone.
+     */
+    UPROPERTY(EditAnywhere, config, Category = "Notes")
+    FColor NoteIconTint;
 
     /**
      * The actor class spawned for a note. A project with its own interaction system points this at

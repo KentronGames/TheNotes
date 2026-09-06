@@ -66,8 +66,11 @@ as a level with no notes.
 Two objects, split by who owns the answer:
 
 - **The Notes** (Project Settings → Plugins) — what a team shares: the notes directory, the sprite a note
-  shows in the world, and the actor class a note is spawned from. Saved to `DefaultGame.ini`, which is the
-  file you commit. All three ship at their defaults, so the plugin works before anyone configures it.
+  shows in the world and the colour it is drawn in, and the actor class a note is spawned from. Saved to
+  `DefaultGame.ini`, which is the file you commit. All of them ship at their defaults, so the plugin works
+  before anyone configures it — and the icon's default colour is the amber the mark already is, so setting
+  nothing changes nothing. The tint recolours the built-in mark; a project naming its own **Note Sprite**
+  colours that texture when it makes it.
 - **The Notes (this developer)** (same place) — the name new notes are signed with. Saved per user, because
   one shared author name would sign everybody's notes with whoever set the project up first.
 - **The Notes (View)** (same place) — how the hover panel looks: spacing, the width the text wraps at, the
