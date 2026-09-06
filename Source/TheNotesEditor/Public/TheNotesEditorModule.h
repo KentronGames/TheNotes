@@ -13,6 +13,7 @@ public:
 
 private:
     void RegisterMenus();
+    void RegisterAssetMenu();
     void BindCommands();
     void TogglePin();
     void ToggleShowAll();

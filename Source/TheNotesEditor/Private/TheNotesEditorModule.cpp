@@ -2,18 +2,23 @@
 
 #include "TheNotesEditorModule.h"
 
+#include "ContentBrowserMenuContexts.h"
 #include "Editor.h"
 #include "EditorViewportClient.h"
 #include "LevelEditor.h"
 #include "ToolMenus.h"
 #include "WorkspaceMenuStructure.h"
 #include "WorkspaceMenuStructureModule.h"
+#include "AssetRegistry/AssetData.h"
+#include "Dialogs/Dialogs.h"
 #include "Engine/World.h"
 #include "Framework/Commands/Commands.h"
 #include "Framework/Commands/UICommandList.h"
 #include "Framework/Docking/TabManager.h"
 #include "HAL/IConsoleManager.h"
 #include "Widgets/Docking/SDockTab.h"
+#include "Widgets/Input/SMultiLineEditableTextBox.h"
+#include "Widgets/Layout/SBox.h"
 
 #include "STheNotesBrowser.h"
 #include "TheNotesEditorStyle.h"
@@ -52,6 +57,13 @@ static const FName SectionName("TheNotes");
 
 /** The two viewport menus a note can be created from: with something selected, and with nothing. */
 static const TCHAR* ContextMenus[] = {TEXT("LevelEditor.ActorContextMenu"), TEXT("LevelEditor.EmptySelectionContextMenu")};
+
+/** The content browser's right-click menu over assets, where a comment on an asset is written from. */
+static const TCHAR* AssetContextMenu = TEXT("ContentBrowser.AssetContextMenu");
+
+/** Room for a paragraph without room for an essay — a comment is a thought, not a document. */
+static constexpr float CommentBoxWidth = 480.0f;
+static constexpr float CommentBoxHeight = 160.0f;
 
 /** How far down the cursor ray a note lands when the ray hits nothing at all. */
 static constexpr double UnobstructedDistance = 1000.0;
@@ -106,6 +118,55 @@ void CreateNoteAtCursor()
     {
         Notes->CreateNoteAt(CursorPlacement());
     }
+}
+
+/**
+ * Asks for the comment and answers what was typed, empty when nothing was.
+ *
+ * Modal because the write happens the moment it closes: a dialog that answered later would have to
+ * keep the selection somewhere in the meantime, and the selection is the very thing the developer is
+ * about to change. Only the OK button commits — a window closed by its cross runs no delegate, so the
+ * text stays empty and nothing is written, which is what closing a dialog is supposed to mean.
+ */
+FString AskForComment(int32 AssetCount)
+{
+    FString Text;
+
+    const TSharedRef<SMultiLineEditableTextBox> Box = SNew(SMultiLineEditableTextBox).AutoWrapText(true).HintText(LOCTEXT("CommentHint", "What is wrong with it, or what has to happen to it"));
+
+    SGenericDialogWidget::FArguments Arguments;
+    Arguments.OnOkPressed_Lambda([&Box, &Text]() { Text = Box->GetText().ToString(); });
+
+    const FText Title = AssetCount == 1 ? LOCTEXT("CommentOnAsset", "Comment on this asset") : FText::Format(LOCTEXT("CommentOnAssets", "Comment on {0} assets"), FText::AsNumber(AssetCount));
+
+    SGenericDialogWidget::OpenDialog(Title, SNew(SBox).WidthOverride(CommentBoxWidth).HeightOverride(CommentBoxHeight)[Box], Arguments, /*bAsModalDialog*/ true);
+
+    return Text.TrimStartAndEnd();
+}
+
+/** Writes one comment onto every asset that was right-clicked. */
+void CommentOnAssets(TArray<FAssetData> Assets)
+{
+    UTheNotesEditorSubsystem* Notes = Subsystem();
+    if(!Notes || Assets.Num() == 0)
+    {
+        return;
+    }
+
+    const FString Text = AskForComment(Assets.Num());
+    if(Text.IsEmpty())
+    {
+        return;
+    }
+
+    TArray<FString> PackageNames;
+    PackageNames.Reserve(Assets.Num());
+    for(const FAssetData& Asset : Assets)
+    {
+        PackageNames.Add(Asset.PackageName.ToString());
+    }
+
+    Notes->CommentOnAssets(PackageNames, Text);
 }
 
 void ReloadNotes()
@@ -222,6 +283,39 @@ void FTheNotesEditorModule::RegisterMenus()
         Section.AddMenuEntryWithCommandList(Commands.ShowAllNotes, FModuleManager::LoadModuleChecked<FLevelEditorModule>(TEXT("LevelEditor")).GetGlobalLevelEditorActions());
         Section.AddMenuEntryWithCommandList(Commands.TogglePin, FModuleManager::LoadModuleChecked<FLevelEditorModule>(TEXT("LevelEditor")).GetGlobalLevelEditorActions());
     }
+
+    RegisterAssetMenu();
+}
+
+void FTheNotesEditorModule::RegisterAssetMenu()
+{
+    UToolMenu* Menu = UToolMenus::Get()->ExtendMenu(FName(TheNotesEditorLocal::AssetContextMenu));
+    if(!Menu)
+    {
+        return;
+    }
+
+    FToolMenuSection& Section = Menu->FindOrAddSection(TheNotesEditorLocal::SectionName, LOCTEXT("NotesSection", "DEV Notes"));
+
+    // A dynamic entry rather than a static one, because the entry has to carry the assets that were
+    // right-clicked, and those are known only when the menu is built. The context is also what says
+    // whether there is anything to comment on at all.
+    Section.AddDynamicEntry(TEXT("AddComment"),
+        FNewToolMenuSectionDelegate::CreateLambda(
+            [](FToolMenuSection& InSection)
+            {
+                const UContentBrowserAssetContextMenuContext* Context = InSection.FindContext<UContentBrowserAssetContextMenuContext>();
+                if(!Context || Context->SelectedAssets.Num() == 0)
+                {
+                    return;
+                }
+
+                InSection.AddMenuEntry(TEXT("AddComment"),
+                    LOCTEXT("AddComment", "Add Comment"),
+                    LOCTEXT("AddCommentTooltip", "Writes a comment about this asset into the DEV Notes store, where a person or an agent reads it without opening the editor"),
+                    FSlateIcon(FTheNotesEditorStyle::StyleName(), "TheNotes.TabIcon"),
+                    FUIAction(FExecuteAction::CreateStatic(&TheNotesEditorLocal::CommentOnAssets, Context->SelectedAssets)));
+            }));
 }
 
 TSharedRef<SDockTab> FTheNotesEditorModule::SpawnBrowserTab(const FSpawnTabArgs& Args)

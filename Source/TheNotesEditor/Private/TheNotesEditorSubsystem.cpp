@@ -2,14 +2,19 @@
 
 #include "TheNotesEditorSubsystem.h"
 
+#include "ContentBrowserModule.h"
 #include "DirectoryWatcherModule.h"
 #include "Editor.h"
 #include "EngineUtils.h"
+#include "IContentBrowserSingleton.h"
 #include "IDirectoryWatcher.h"
 #include "ScopedTransaction.h"
+#include "AssetRegistry/AssetData.h"
+#include "AssetRegistry/IAssetRegistry.h"
 #include "Engine/Engine.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformTime.h"
+#include "Misc/PackageName.h"
 #include "Modules/ModuleManager.h"
 #include "Engine/Selection.h"
 #include "Engine/World.h"
@@ -487,6 +492,42 @@ ATheNote* UTheNotesEditorSubsystem::CreateNoteAt(const FVector& Location)
     return Note;
 }
 
+void UTheNotesEditorSubsystem::CommentOnAssets(const TArray<FString>& AssetPackageNames, const FString& Text)
+{
+    if(AssetPackageNames.Num() == 0 || Text.IsEmpty())
+    {
+        return;
+    }
+
+    const FString Author = UTheNotesUserSettings::ResolvedAuthorName();
+    TArray<FTheNoteRecord> Records = FTheNoteStore::LoadAssetComments(Author);
+
+    for(const FString& AssetPackageName : AssetPackageNames)
+    {
+        FTheNoteRecord Record = FTheNoteStore::MakeAssetRecord(AssetPackageName);
+
+        // The asset's own name is the title, so the list reads as a list of assets rather than of
+        // first lines. The comment is one field to type, and asking for a title as well is asking for
+        // the asset's name a second time.
+        Record.Title = FPackageName::GetShortName(AssetPackageName);
+        Record.Body = Text;
+        Records.Add(MoveTemp(Record));
+    }
+
+    FString Error;
+    if(!FTheNoteStore::SaveAssetComments(Author, Records, Error))
+    {
+        UE_LOG(LogTheNotes, Error, TEXT("%s"), *Error);
+        return;
+    }
+
+    // Our own write comes back through the directory watcher like anyone else's, and a reload it
+    // triggers would despawn and respawn every note standing in the open level for nothing.
+    LastSelfWriteSeconds = FPlatformTime::Seconds();
+    UE_LOG(LogTheNotes, Log, TEXT("%d asset comment(s) written to %s"), AssetPackageNames.Num(), *FTheNoteStore::AssetsFilePath(Author));
+    NotesChanged.Broadcast();
+}
+
 bool UTheNotesEditorSubsystem::FocusOnNote(const FGuid& Id)
 {
     for(ATheNote* Note : GetLevelNotes())
@@ -502,18 +543,53 @@ bool UTheNotesEditorSubsystem::FocusOnNote(const FGuid& Id)
             return true;
         }
     }
+    return FocusOnAsset(Id);
+}
+
+bool UTheNotesEditorSubsystem::FocusOnAsset(const FGuid& Id)
+{
+    for(const FString& File : FTheNoteStore::AssetFiles())
+    {
+        TArray<FTheNoteRecord> Records;
+        FString Error;
+        if(!FTheNoteStore::LoadFile(File, Records, Error))
+        {
+            UE_LOG(LogTheNotes, Warning, TEXT("%s"), *Error);
+            continue;
+        }
+
+        const FTheNoteRecord* Found = Records.FindByPredicate([&Id](const FTheNoteRecord& Record) { return Record.Id == Id; });
+        if(!Found || Found->Asset.IsEmpty())
+        {
+            continue;
+        }
+
+        // By package name rather than by object path: the record stores the package, and building an
+        // object path out of it would guess that the asset inside is named after its package — true
+        // for everything the content browser makes and not a rule the engine keeps.
+        TArray<FAssetData> Assets;
+        IAssetRegistry::GetChecked().GetAssetsByPackageName(FName(*Found->Asset), Assets);
+        if(Assets.Num() == 0)
+        {
+            UE_LOG(LogTheNotes, Warning, TEXT("The asset '%s' this comment is about no longer exists"), *Found->Asset);
+            return false;
+        }
+
+        FContentBrowserModule& ContentBrowser = FModuleManager::LoadModuleChecked<FContentBrowserModule>(TEXT("ContentBrowser"));
+        ContentBrowser.Get().SyncBrowserToAssets(Assets);
+        return true;
+    }
     return false;
 }
 
 bool UTheNotesEditorSubsystem::DeleteNote(const FGuid& Id)
 {
+    // No world is not a refusal any more: an asset comment lives in a file and is deleted whether or
+    // not a level happens to be open.
     UWorld* World = EditorWorld();
-    if(!World)
-    {
-        return false;
-    }
+    const TArray<ATheNote*> Notes = World ? GetLevelNotes() : TArray<ATheNote*>();
 
-    for(ATheNote* Note : GetLevelNotes())
+    for(ATheNote* Note : Notes)
     {
         if(Note->Record.Id != Id)
         {
@@ -526,6 +602,42 @@ bool UTheNotesEditorSubsystem::DeleteNote(const FGuid& Id)
         // whose last note this was stays in KnownAuthors so the flush writes his file empty and removes it.
         World->DestroyActor(Note);
         MarkDirty();
+        return true;
+    }
+    return DeleteAssetComment(Id);
+}
+
+bool UTheNotesEditorSubsystem::DeleteAssetComment(const FGuid& Id)
+{
+    for(const FString& File : FTheNoteStore::AssetFiles())
+    {
+        TArray<FTheNoteRecord> Records;
+        FString Error;
+        if(!FTheNoteStore::LoadFile(File, Records, Error))
+        {
+            UE_LOG(LogTheNotes, Warning, TEXT("%s"), *Error);
+            continue;
+        }
+
+        const int32 Index = Records.IndexOfByPredicate([&Id](const FTheNoteRecord& Record) { return Record.Id == Id; });
+        if(Index == INDEX_NONE)
+        {
+            continue;
+        }
+
+        // Taken before the removal: the author is what says which file to write back, and the last
+        // comment in a file takes the only copy of it with him.
+        const FString Author = Records[Index].Author;
+        Records.RemoveAt(Index);
+
+        if(!FTheNoteStore::SaveAssetComments(Author, Records, Error))
+        {
+            UE_LOG(LogTheNotes, Error, TEXT("%s"), *Error);
+            return false;
+        }
+
+        LastSelfWriteSeconds = FPlatformTime::Seconds();
+        NotesChanged.Broadcast();
         return true;
     }
     return false;
@@ -544,9 +656,13 @@ TArray<FTheNoteRecord> UTheNotesEditorSubsystem::CollectAllNotes() const
         All.Add(MoveTemp(Record));
     }
 
+    // The open level's own notes are the ones already taken from actors above. An asset comment is
+    // never one of them — it has no level and no actor — so the test asks about the level note, not
+    // about a level being empty: with no map open, an empty tracked level would otherwise swallow
+    // every asset comment there is.
     for(const FTheNoteRecord& Record : FTheNoteStore::LoadAll())
     {
-        if(Record.Level != TrackedLevel)
+        if(!Record.Asset.IsEmpty() || Record.Level != TrackedLevel)
         {
             All.Add(Record);
         }

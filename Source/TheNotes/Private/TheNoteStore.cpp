@@ -18,6 +18,9 @@ namespace TheNoteStoreKeys
 {
 static const TCHAR* Author = TEXT("author");
 static const TCHAR* Level = TEXT("level");
+// On the entry, not on the file: one assets file carries comments on many assets, while one level
+// file carries notes standing in one level. Its presence is what tells the two kinds of record apart.
+static const TCHAR* Asset = TEXT("asset");
 static const TCHAR* Notes = TEXT("notes");
 static const TCHAR* Id = TEXT("id");
 static const TCHAR* Title = TEXT("title");
@@ -45,9 +48,19 @@ FString FTheNoteStore::LevelFileName(const FString& LevelPackageName)
     return FPaths::MakeValidFileName(Flattened, TEXT('_')) + TEXT(".json");
 }
 
+FString FTheNoteStore::AssetsFileName()
+{
+    return TEXT("Assets.json");
+}
+
 FString FTheNoteStore::FilePath(const FString& Author, const FString& LevelPackageName)
 {
     return UTheNotesSettings::ResolvedNotesDirectory() / FPaths::MakeValidFileName(Author, TEXT('_')) / LevelFileName(LevelPackageName);
+}
+
+FString FTheNoteStore::AssetsFilePath(const FString& Author)
+{
+    return UTheNotesSettings::ResolvedNotesDirectory() / FPaths::MakeValidFileName(Author, TEXT('_')) / AssetsFileName();
 }
 
 TArray<FString> FTheNoteStore::FilesForLevel(const FString& LevelPackageName)
@@ -78,6 +91,14 @@ TArray<FString> FTheNoteStore::AllFiles()
     return Found;
 }
 
+TArray<FString> FTheNoteStore::AssetFiles()
+{
+    TArray<FString> Found;
+    IFileManager::Get().FindFilesRecursive(Found, *UTheNotesSettings::ResolvedNotesDirectory(), *AssetsFileName(), true, false);
+    Found.Sort();
+    return Found;
+}
+
 bool FTheNoteStore::LoadFile(const FString& FilePath, TArray<FTheNoteRecord>& OutRecords, FString& OutError)
 {
     OutRecords.Reset();
@@ -98,8 +119,10 @@ bool FTheNoteStore::LoadFile(const FString& FilePath, TArray<FTheNoteRecord>& Ou
         return false;
     }
 
-    const FString FileAuthor = Root->GetStringField(TheNoteStoreKeys::Author);
-    const FString FileLevel = Root->GetStringField(TheNoteStoreKeys::Level);
+    FString FileAuthor;
+    FString FileLevel;
+    Root->TryGetStringField(TheNoteStoreKeys::Author, FileAuthor);
+    Root->TryGetStringField(TheNoteStoreKeys::Level, FileLevel);
 
     const TArray<TSharedPtr<FJsonValue>>* Notes = nullptr;
     if(!Root->TryGetArrayField(TheNoteStoreKeys::Notes, Notes) || !Notes)
@@ -131,6 +154,7 @@ bool FTheNoteStore::LoadFile(const FString& FilePath, TArray<FTheNoteRecord>& Ou
         (*Entry)->TryGetStringField(TheNoteStoreKeys::Title, Record.Title);
         (*Entry)->TryGetStringField(TheNoteStoreKeys::Body, Record.Body);
         (*Entry)->TryGetStringField(TheNoteStoreKeys::Collection, Record.Collection);
+        (*Entry)->TryGetStringField(TheNoteStoreKeys::Asset, Record.Asset);
         (*Entry)->TryGetBoolField(TheNoteStoreKeys::ShowInGame, Record.bShowInGame);
 
         FString TintText;
@@ -172,14 +196,31 @@ bool FTheNoteStore::SaveFile(const FString& FilePath, const FString& Author, con
 {
     OutError.Reset();
 
+    // An empty level is the assets file. It gets no level line rather than an empty one, because a
+    // reader deciding what kind of file this is reads the presence of the key, not its value.
+    const bool bLevelFile = !LevelPackageName.IsEmpty();
+
     TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
     Root->SetStringField(TheNoteStoreKeys::Author, Author);
-    Root->SetStringField(TheNoteStoreKeys::Level, LevelPackageName);
+    if(bLevelFile)
+    {
+        Root->SetStringField(TheNoteStoreKeys::Level, LevelPackageName);
+    }
 
     // Sorted by identity, so that the order of notes in the file does not depend on the order the
-    // editor happened to spawn actors in. An unstable order turns every save into a diff.
+    // editor happened to spawn actors in. An unstable order turns every save into a diff. The assets
+    // file sorts by the asset first: it is a file somebody reads top to bottom, and comments on one
+    // asset standing apart from each other is the one thing that would make it unreadable.
     TArray<FTheNoteRecord> Sorted = Records;
-    Sorted.Sort([](const FTheNoteRecord& A, const FTheNoteRecord& B) { return A.Id.ToString(EGuidFormats::DigitsWithHyphens) < B.Id.ToString(EGuidFormats::DigitsWithHyphens); });
+    Sorted.Sort(
+        [](const FTheNoteRecord& A, const FTheNoteRecord& B)
+        {
+            if(A.Asset != B.Asset)
+            {
+                return A.Asset < B.Asset;
+            }
+            return A.Id.ToString(EGuidFormats::DigitsWithHyphens) < B.Id.ToString(EGuidFormats::DigitsWithHyphens);
+        });
 
     TArray<TSharedPtr<FJsonValue>> Notes;
     Notes.Reserve(Sorted.Num());
@@ -191,13 +232,24 @@ bool FTheNoteStore::SaveFile(const FString& FilePath, const FString& Author, con
         Entry->SetStringField(TheNoteStoreKeys::Body, Record.Body);
         Entry->SetStringField(TheNoteStoreKeys::Collection, Record.Collection);
 
-        TSharedRef<FJsonObject> LocationObject = MakeShared<FJsonObject>();
-        LocationObject->SetNumberField(TheNoteStoreKeys::X, Record.Location.X);
-        LocationObject->SetNumberField(TheNoteStoreKeys::Y, Record.Location.Y);
-        LocationObject->SetNumberField(TheNoteStoreKeys::Z, Record.Location.Z);
-        Entry->SetObjectField(TheNoteStoreKeys::Location, LocationObject);
+        // A coordinate and a "show in game" flag are things a note standing in a level has. Writing
+        // them onto an asset comment would put a position on a record that has none and invite a
+        // reader to believe it.
+        if(bLevelFile)
+        {
+            TSharedRef<FJsonObject> LocationObject = MakeShared<FJsonObject>();
+            LocationObject->SetNumberField(TheNoteStoreKeys::X, Record.Location.X);
+            LocationObject->SetNumberField(TheNoteStoreKeys::Y, Record.Location.Y);
+            LocationObject->SetNumberField(TheNoteStoreKeys::Z, Record.Location.Z);
+            Entry->SetObjectField(TheNoteStoreKeys::Location, LocationObject);
 
-        Entry->SetBoolField(TheNoteStoreKeys::ShowInGame, Record.bShowInGame);
+            Entry->SetBoolField(TheNoteStoreKeys::ShowInGame, Record.bShowInGame);
+        }
+        else
+        {
+            Entry->SetStringField(TheNoteStoreKeys::Asset, Record.Asset);
+        }
+
         if(Record.bOverrideIconTint)
         {
             Entry->SetStringField(TheNoteStoreKeys::IconTint, Record.IconTint.ToHex());
@@ -277,6 +329,35 @@ TArray<FTheNoteRecord> FTheNoteStore::LoadAll()
     return All;
 }
 
+TArray<FTheNoteRecord> FTheNoteStore::LoadAssetComments(const FString& Author)
+{
+    TArray<FTheNoteRecord> Records;
+    FString Error;
+    const FString Path = AssetsFilePath(Author);
+
+    // A file that is not there yet is an author who has commented nothing, which is the normal state
+    // of every author until his first comment — not a condition anyone needs to hear about.
+    if(!IFileManager::Get().FileExists(*Path))
+    {
+        return Records;
+    }
+
+    if(!LoadFile(Path, Records, Error))
+    {
+        UE_LOG(LogTheNotes, Warning, TEXT("%s"), *Error);
+    }
+    return Records;
+}
+
+bool FTheNoteStore::SaveAssetComments(const FString& Author, const TArray<FTheNoteRecord>& Records, FString& OutError)
+{
+    const FString Path = AssetsFilePath(Author);
+
+    // The empty level is what SaveFile reads as "this is the assets file". An author whose last
+    // comment has just gone loses the file rather than keeping an empty one, exactly as with a level.
+    return Records.Num() > 0 ? SaveFile(Path, Author, FString(), Records, OutError) : DeleteFile(Path, OutError);
+}
+
 FTheNoteRecord FTheNoteStore::MakeRecord(const FString& LevelPackageName, const FVector& Location)
 {
     FTheNoteRecord Record;
@@ -284,6 +365,17 @@ FTheNoteRecord FTheNoteStore::MakeRecord(const FString& LevelPackageName, const 
     Record.Author = UTheNotesUserSettings::ResolvedAuthorName();
     Record.Level = LevelPackageName;
     Record.Location = Location;
+    Record.CreatedAt = FDateTime::UtcNow();
+    Record.UpdatedAt = Record.CreatedAt;
+    return Record;
+}
+
+FTheNoteRecord FTheNoteStore::MakeAssetRecord(const FString& AssetPackageName)
+{
+    FTheNoteRecord Record;
+    Record.Id = FGuid::NewGuid();
+    Record.Author = UTheNotesUserSettings::ResolvedAuthorName();
+    Record.Asset = AssetPackageName;
     Record.CreatedAt = FDateTime::UtcNow();
     Record.UpdatedAt = Record.CreatedAt;
     return Record;

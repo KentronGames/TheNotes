@@ -34,7 +34,17 @@ public:
     /** Writes a new note at a world position, spawns its actor and selects it. */
     class ATheNote* CreateNoteAt(const FVector& Location);
 
-    /** Selects the note with this identity and moves the viewport cameras to it. */
+    /**
+     * Writes the same comment onto each of these assets and puts it on disk at once.
+     *
+     * Not deferred like a level note: an asset comment has no actor to hold it in the meantime, so
+     * between the dialog closing and the file being written it would exist nowhere at all. One text
+     * over several assets is what a multiple selection means — the developer said one thing about the
+     * batch, and a comment per asset is what makes it findable from any one of them.
+     */
+    void CommentOnAssets(const TArray<FString>& AssetPackageNames, const FString& Text);
+
+    /** Selects the note with this identity and moves the viewport cameras to it, or shows the asset it is about. */
     bool FocusOnNote(const FGuid& Id);
 
     /**
@@ -42,7 +52,8 @@ public:
      *
      * Deleting IS how a note is closed: the store is committed text, so the thought stays in history
      * while the level stops carrying a marker nobody needs any more. Answers false for a note that
-     * belongs to a level that is not open — there is no actor to remove.
+     * belongs to a level that is not open — there is no actor to remove. An asset comment is deleted
+     * from whichever author's file holds it, open level or not: it has no actor to be missing.
      */
     bool DeleteNote(const FGuid& Id);
 
@@ -90,6 +101,9 @@ private:
 
     class UWorld* EditorWorld() const;
     static FString LevelPackageNameOf(const class UWorld* World);
+
+    bool DeleteAssetComment(const FGuid& Id);
+    bool FocusOnAsset(const FGuid& Id);
 
     void ReloadFromStore();
     void DespawnAll();

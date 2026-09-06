@@ -4,8 +4,9 @@ An Unreal Editor plugin for leaving developer notes in the level itself. A note 
 the problem is, carrying a title and a body; you read it by putting the cursor on it in the viewport, and
 you never enter Play Mode to do it.
 
-It is a way to talk about a place in the world while looking at that place. It ships no content, and
-nothing it does is written into your maps.
+It is a way to talk about a place in the world while looking at that place — and, from the content
+browser, about an asset while looking at the asset. It ships no content, and nothing it does is written
+into your maps or into the assets you comment on.
 
 ## What it does
 
@@ -24,11 +25,18 @@ fixed rectangle, so a one-line note does not cover the viewport. It hangs off th
 DEV Notes** puts every note's title on screen at once — titles only, because a dozen full panels is a wall
 of text with a level somewhere behind it.
 
-**Every note in one list.** The **DEV Notes** tab (Window → Tools) lists notes from every level, not only
-the open one: author, collection, title, level, and when the note was written and last changed. Every
-column sorts. The filter box takes words to look for anywhere, or `author:`, `level:` and `collection:` to
-name a field — every term has to match. A **This level** box narrows the list to the map that is open.
-Double-click a row and the viewport flies to that note; **Delete** removes the selected one.
+**A comment stands on an asset.** Right-click any asset in the content browser and pick **Add Comment**:
+one box, one thought, and the asset's own name becomes the title. Several assets selected get the same
+comment each, because that is what saying one thing about a batch means. A comment has no marker and no
+coordinate — it is about a thing, not about a place — so it is written to disk the moment the box closes
+rather than waiting for a level to be saved.
+
+**Every note in one list.** The **DEV Notes** tab (Window → Tools) lists notes from every level and every
+comment on every asset, not only the open map: author, collection, title, where it belongs, and when it
+was written and last changed. Every column sorts. The filter box takes words to look for anywhere, or
+`author:`, `level:`, `asset:` and `collection:` to name a field — every term has to match. A **This level**
+box narrows the list to the map that is open. Double-click a row and the viewport flies to that note, or
+the content browser jumps to that asset; **Delete** removes the selected one.
 
 **Notes are closed by deleting them.** There is no "resolved" flag on purpose: the store is plain text, so
 a repository that commits it already remembers every note that ever stood in a level, and what it said.
@@ -66,11 +74,15 @@ Requires Unreal Engine 5.8.
 
 ```text
 <YourProject>/DevNotes/<Author>/<Level>.json
+<YourProject>/DevNotes/<Author>/Assets.json
 ```
 
 `/Game/Maps/L_Main` becomes `Game.Maps.L_Main.json`, so the path is readable and the file name cannot
-collide with another level's. A file that will not parse is reported and skipped — never silently treated
-as a level with no notes.
+collide with another level's — or with the assets file, because a level's flattened name always carries
+its mount point. Comments on assets share one file per author rather than taking one each: an asset is
+commented once or twice in its life, and the point of the file is that a reader opens ONE path to see
+everything this author has said about the content. A file that will not parse is reported and skipped —
+never silently treated as a level with no notes.
 
 ## Settings
 

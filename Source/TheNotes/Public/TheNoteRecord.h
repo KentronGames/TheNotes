@@ -44,6 +44,17 @@ struct THENOTES_API FTheNoteRecord
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Note")
     FString Level;
 
+    /**
+     * Long package name of the asset the note is about, such as /Game/Characters/SK_Hero.
+     *
+     * Filled for a comment left on an asset in the content browser, empty for a note standing in a
+     * level — the two are the same record because they are the same thought about a different subject,
+     * and exactly one of the two fields is ever set. An asset comment has no actor and no coordinate:
+     * its file is its only truth, at every moment rather than only between sessions.
+     */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Note")
+    FString Asset;
+
     /** Where the note stands. Written from the actor's transform, never edited by hand. */
     UPROPERTY()
     FVector Location = FVector::ZeroVector;
@@ -93,7 +104,7 @@ struct THENOTES_API FTheNoteRecord
      */
     bool EqualsIgnoringStamps(const FTheNoteRecord& Other) const
     {
-        return Id == Other.Id && Title == Other.Title && Body == Other.Body && Author == Other.Author && Collection == Other.Collection && Level == Other.Level && bShowInGame == Other.bShowInGame && bOverrideIconTint == Other.bOverrideIconTint &&
-               (!bOverrideIconTint || IconTint == Other.IconTint) && Location.Equals(Other.Location, 0.01);
+        return Id == Other.Id && Title == Other.Title && Body == Other.Body && Author == Other.Author && Collection == Other.Collection && Level == Other.Level && Asset == Other.Asset && bShowInGame == Other.bShowInGame &&
+               bOverrideIconTint == Other.bOverrideIconTint && (!bOverrideIconTint || IconTint == Other.IconTint) && Location.Equals(Other.Location, 0.01);
     }
 };

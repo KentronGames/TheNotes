@@ -21,7 +21,10 @@ namespace TheNotesBrowserColumns
 static const FName Author("Author");
 static const FName Collection("Collection");
 static const FName Title("Title");
+// One column for both kinds of subject — the level a note stands in, or the asset a comment is about.
+// A note has exactly one of the two, so a column each would be a column half empty in every row.
 static const FName Level("Level");
+static const FName Asset("Asset");
 static const FName Created("Created");
 static const FName Updated("Updated");
 }
@@ -82,7 +85,11 @@ struct FTerm
         {
             return Record.Collection.Contains(Value);
         }
-        return Record.Title.Contains(Value) || Record.Body.Contains(Value) || Record.Author.Contains(Value) || Record.Collection.Contains(Value) || Record.Level.Contains(Value);
+        if(Field == TheNotesBrowserColumns::Asset)
+        {
+            return Record.Asset.Contains(Value);
+        }
+        return Record.Title.Contains(Value) || Record.Body.Contains(Value) || Record.Author.Contains(Value) || Record.Collection.Contains(Value) || Record.Level.Contains(Value) || Record.Asset.Contains(Value);
     }
 };
 
@@ -100,7 +107,7 @@ TArray<FTerm> ParseFilter(const FString& Text)
         if(Word.Split(TEXT(":"), &Field, &Value) && !Value.IsEmpty())
         {
             const FName AsField(*Field);
-            if(AsField == TheNotesBrowserColumns::Author || AsField == TheNotesBrowserColumns::Level || AsField == TheNotesBrowserColumns::Collection)
+            if(AsField == TheNotesBrowserColumns::Author || AsField == TheNotesBrowserColumns::Level || AsField == TheNotesBrowserColumns::Collection || AsField == TheNotesBrowserColumns::Asset)
             {
                 Terms.Add({AsField, Value});
                 continue;
@@ -128,7 +135,10 @@ FString CellText(const FTheNoteRecord& Record, const FName& Column)
     }
     if(Column == TheNotesBrowserColumns::Level)
     {
-        return ShortLevelName(Record.Level);
+        // The asset in full and the level short. A level is a place the developer already knows by
+        // its short name, and an asset is a path he is about to hand to somebody — an agent most of
+        // all — so the one thing it must not be is shortened.
+        return Record.Asset.IsEmpty() ? ShortLevelName(Record.Level) : Record.Asset;
     }
     if(Column == TheNotesBrowserColumns::Created)
     {
@@ -180,7 +190,7 @@ void STheNotesBrowser::Construct(const FArguments& InArgs)
     ChildSlot[SNew(SVerticalBox) +
               SVerticalBox::Slot().AutoHeight().Padding(4.0f)
                   [SNew(SHorizontalBox) +
-                      SHorizontalBox::Slot().FillWidth(1.0f)[SNew(SSearchBox).HintText(LOCTEXT("FilterHint", "Words to find, or author: / level: / collection: to name a field")).OnTextChanged(this, &STheNotesBrowser::HandleFilterChanged)] +
+                      SHorizontalBox::Slot().FillWidth(1.0f)[SNew(SSearchBox).HintText(LOCTEXT("FilterHint", "Words to find, or author: / level: / asset: / collection: to name a field")).OnTextChanged(this, &STheNotesBrowser::HandleFilterChanged)] +
                       SHorizontalBox::Slot()
                           .AutoWidth()
                           .Padding(6.0f, 0.0f, 0.0f, 0.0f)
@@ -222,7 +232,7 @@ void STheNotesBrowser::Construct(const FArguments& InArgs)
                                      .SortMode(this, &STheNotesBrowser::SortModeFor, TheNotesBrowserColumns::Title)
                                      .OnSort(this, &STheNotesBrowser::HandleSort) +
                                  SHeaderRow::Column(TheNotesBrowserColumns::Level)
-                                     .DefaultLabel(LOCTEXT("LevelColumn", "Level"))
+                                     .DefaultLabel(LOCTEXT("LevelColumn", "Where"))
                                      .FillWidth(0.14f)
                                      .SortMode(this, &STheNotesBrowser::SortModeFor, TheNotesBrowserColumns::Level)
                                      .OnSort(this, &STheNotesBrowser::HandleSort) +
@@ -309,17 +319,24 @@ bool STheNotesBrowser::CanDelete() const
         return false;
     }
 
-    // A note in a level that is not open has no actor to destroy, and rewriting somebody's file from
-    // here would be a change with nothing on screen to show for it.
+    // A comment on an asset is deleted from wherever the list is: its file is its whole existence, so
+    // there is no open level for it to be waiting on. A note in a level that is not open is the other
+    // case — it has no actor to destroy, and rewriting somebody's file from here would be a change
+    // with nothing on screen to show for it.
+    if(!Selected[0]->Asset.IsEmpty())
+    {
+        return true;
+    }
+
     const UTheNotesEditorSubsystem* Subsystem = GEditor->GetEditorSubsystem<UTheNotesEditorSubsystem>();
     return Subsystem && Selected[0]->Level == Subsystem->GetTrackedLevel();
 }
 
 FReply STheNotesBrowser::HandleDeleteClicked()
 {
-    if(CanDelete())
+    UTheNotesEditorSubsystem* Subsystem = GEditor ? GEditor->GetEditorSubsystem<UTheNotesEditorSubsystem>() : nullptr;
+    if(Subsystem && CanDelete())
     {
-        UTheNotesEditorSubsystem* Subsystem = GEditor->GetEditorSubsystem<UTheNotesEditorSubsystem>();
         Subsystem->DeleteNote(ListView->GetSelectedItems()[0]->Id);
     }
     return FReply::Handled();

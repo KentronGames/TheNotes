@@ -4,13 +4,13 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-#include "TheNoteStore.h"
+    #include "TheNoteStore.h"
 
-#include "HAL/FileManager.h"
-#include "Misc/FileHelper.h"
-#include "Misc/Guid.h"
-#include "Misc/Paths.h"
-#include "Misc/ScopeExit.h"
+    #include "HAL/FileManager.h"
+    #include "Misc/FileHelper.h"
+    #include "Misc/Guid.h"
+    #include "Misc/Paths.h"
+    #include "Misc/ScopeExit.h"
 
 namespace TheNoteStoreTests
 {
@@ -51,8 +51,7 @@ bool FTheNoteStoreRoundTripTest::RunTest(const FString& Parameters)
     Written.bShowInGame = true;
 
     FString Error;
-    if(!TestTrue(FString::Printf(TEXT("save succeeds: %s"), *Error),
-        FTheNoteStore::SaveFile(File, Written.Author, Written.Level, { Written }, Error)))
+    if(!TestTrue(FString::Printf(TEXT("save succeeds: %s"), *Error), FTheNoteStore::SaveFile(File, Written.Author, Written.Level, {Written}, Error)))
     {
         return false;
     }
@@ -98,7 +97,7 @@ bool FTheNoteStoreEmptyCollectionTest::RunTest(const FString& Parameters)
     const FTheNoteRecord Written = MakeOne(TEXT("Author"), TEXT("Ungrouped"), FVector::ZeroVector);
 
     FString Error;
-    FTheNoteStore::SaveFile(File, Written.Author, Written.Level, { Written }, Error);
+    FTheNoteStore::SaveFile(File, Written.Author, Written.Level, {Written}, Error);
 
     TArray<FTheNoteRecord> Read;
     if(!TestTrue(FString::Printf(TEXT("load succeeds: %s"), *Error), FTheNoteStore::LoadFile(File, Read, Error)))
@@ -138,6 +137,67 @@ bool FTheNoteStoreMalformedTest::RunTest(const FString& Parameters)
     TestFalse(TEXT("truncated JSON fails"), FTheNoteStore::LoadFile(File, Read, Error));
     TestFalse(TEXT("the failure says which file"), Error.IsEmpty());
     TestEqual(TEXT("nothing is returned"), Read.Num(), 0);
+    return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FTheNoteStoreAssetCommentTest, "TheNotes.Store.AssetCommentKeepsItsAssetAndNoCoordinate", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+bool FTheNoteStoreAssetCommentTest::RunTest(const FString& Parameters)
+{
+    using namespace TheNoteStoreTests;
+
+    const FString Directory = ScratchDirectory();
+    const FString File = Directory / FTheNoteStore::AssetsFileName();
+    ON_SCOPE_EXIT
+    {
+        IFileManager::Get().DeleteDirectory(*Directory, false, true);
+    };
+
+    FTheNoteRecord First = MakeOne(TEXT("Author"), TEXT("SK_Hero"), FVector(1.0, 2.0, 3.0));
+    First.Level.Reset();
+    First.Asset = TEXT("/Game/Characters/SK_Hero");
+
+    FTheNoteRecord Second = MakeOne(TEXT("Author"), TEXT("M_Rock"), FVector::ZeroVector);
+    Second.Level.Reset();
+    Second.Asset = TEXT("/Game/Env/M_Rock");
+
+    FString Error;
+
+    // The empty level is what makes this the assets file — the same call, told which kind of file
+    // it is writing by the one field that differs between the two kinds of record.
+    if(!TestTrue(FString::Printf(TEXT("save succeeds: %s"), *Error), FTheNoteStore::SaveFile(File, TEXT("Author"), FString(), {First, Second}, Error)))
+    {
+        return false;
+    }
+
+    TArray<FTheNoteRecord> Read;
+    if(!TestTrue(FString::Printf(TEXT("load succeeds: %s"), *Error), FTheNoteStore::LoadFile(File, Read, Error)))
+    {
+        return false;
+    }
+    if(!TestEqual(TEXT("both comments back"), Read.Num(), 2))
+    {
+        return false;
+    }
+
+    // Sorted by the asset, so the file reads as a list of things rather than of identities.
+    TestEqual(TEXT("sorted by asset"), Read[0].Asset, First.Asset);
+    TestEqual(TEXT("the other asset"), Read[1].Asset, Second.Asset);
+    TestEqual(TEXT("author from the file header"), Read[0].Author, FString(TEXT("Author")));
+    TestTrue(TEXT("an asset comment stands in no level"), Read[0].Level.IsEmpty());
+
+    // The first record was given a coordinate on purpose. A coordinate on a record that has none is a
+    // value a reader would believe, so the written file has to drop it rather than carry it.
+    TestTrue(TEXT("no coordinate is kept"), Read[0].Location.IsNearlyZero());
+
+    FString Text;
+    FFileHelper::LoadFileToString(Text, *File);
+    TestFalse(TEXT("no level line at the top"), Text.Contains(TEXT("\"level\"")));
+    TestFalse(TEXT("no location on an asset comment"), Text.Contains(TEXT("\"location\"")));
+    TestTrue(TEXT("the asset is written"), Text.Contains(First.Asset));
+
+    // The assets file cannot be claimed by a level: every level's flattened name carries its mount
+    // point, so the shortest one a level can produce is still Game.Something.json.
+    TestNotEqual(TEXT("no level owns the assets file name"), FTheNoteStore::LevelFileName(TEXT("/Game/Assets")), FTheNoteStore::AssetsFileName());
     return true;
 }
 

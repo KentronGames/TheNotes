@@ -21,6 +21,8 @@ public class TheNotesEditor : ModuleRules
 
         PrivateDependencyModuleNames.AddRange(new string[]
         {
+            "AssetRegistry",
+            "ContentBrowser",
             "DeveloperSettings",
             "DirectoryWatcher",
             "EditorSubsystem",
