@@ -35,6 +35,11 @@ having to parse it. Opening a level reads only the files that level needs.
 "changed at" stamp moves only when a human actually changed something — dragging one marker does not
 restamp every note in the file.
 
+**Notes arriving from source control appear on their own.** The notes directory is watched, so a pull
+that brings in a colleague's notes puts them in the level and in the list without reopening the map.
+Where the platform cannot watch a directory — a network share, most often — the **Reload** button on
+the DEV Notes tab and the `TheNotes.Reload` console command do the same thing by hand.
+
 ## Installing
 
 1. Copy `TheNotes` into your project's `Plugins/` folder.
@@ -65,6 +70,10 @@ Two objects, split by who owns the answer:
   file you commit. All three ship at their defaults, so the plugin works before anyone configures it.
 - **The Notes (this developer)** (same place) — the name new notes are signed with. Saved per user, because
   one shared author name would sign everybody's notes with whoever set the project up first.
+- **The Notes (View)** (same place) — how the hover panel looks: spacing, the width the text wraps at, the
+  five colours, the three font sizes, and whether the title and signature are drawn in capitals. Saved per
+  user as well: the contrast that reads over a bright blockout is not the one that reads over a night
+  scene, and a preference like that must never dirty a file the team shares.
 
 Pointing **Note Actor Class** at your own subclass is how a project with its own interaction or selection
 system gets its components onto a note; the plugin never names another module's types.

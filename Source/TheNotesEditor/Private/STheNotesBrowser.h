@@ -18,9 +18,7 @@
 class STheNotesBrowser : public SCompoundWidget
 {
 public:
-    SLATE_BEGIN_ARGS(STheNotesBrowser)
-    {
-    }
+    SLATE_BEGIN_ARGS(STheNotesBrowser) { }
     SLATE_END_ARGS()
 
     void Construct(const FArguments& InArgs);
@@ -30,6 +28,7 @@ private:
     TSharedRef<class ITableRow> MakeRow(TSharedPtr<FTheNoteRecord> Item, const TSharedRef<class STableViewBase>& OwnerTable);
     void HandleRowActivated(TSharedPtr<FTheNoteRecord> Item);
     void HandleFilterChanged(const FText& Text);
+    FReply HandleReloadClicked();
     void Refresh();
 
     TArray<TSharedPtr<FTheNoteRecord>> Rows;

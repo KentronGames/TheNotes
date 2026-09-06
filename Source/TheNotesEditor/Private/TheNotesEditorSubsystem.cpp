@@ -2,10 +2,15 @@
 
 #include "TheNotesEditorSubsystem.h"
 
+#include "DirectoryWatcherModule.h"
 #include "Editor.h"
 #include "EngineUtils.h"
+#include "IDirectoryWatcher.h"
 #include "ScopedTransaction.h"
 #include "Engine/Engine.h"
+#include "HAL/FileManager.h"
+#include "HAL/PlatformTime.h"
+#include "Modules/ModuleManager.h"
 #include "Engine/Selection.h"
 #include "Engine/World.h"
 #include "UObject/Package.h"
@@ -21,6 +26,11 @@ namespace TheNotesEditorSubsystemLocal
 // Long enough that dragging a note across the viewport is one write rather than one per frame,
 // short enough that a developer who alt-tabs to look at the file finds it already correct.
 static constexpr float FlushDelaySeconds = 0.75f;
+
+// How long after a write of our own a file event is still attributed to that write. Wider than one
+// flush interval on purpose: the watcher reports a batch some time after the bytes land, and
+// mistaking our own write for someone else's costs a despawn-respawn under the developer's cursor.
+static constexpr double SelfWriteGraceSeconds = 2.0;
 }
 
 void UTheNotesEditorSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -38,6 +48,8 @@ void UTheNotesEditorSubsystem::Initialize(FSubsystemCollectionBase& Collection)
     }
 
     TickerHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &UTheNotesEditorSubsystem::HandleTick), TheNotesEditorSubsystemLocal::FlushDelaySeconds);
+
+    StartWatchingStore();
 }
 
 void UTheNotesEditorSubsystem::Deinitialize()
@@ -46,6 +58,7 @@ void UTheNotesEditorSubsystem::Deinitialize()
     // tick again, and the alternative is losing whatever was changed in the last second of a session.
     Flush();
 
+    StopWatchingStore();
     FTSTicker::GetCoreTicker().RemoveTicker(TickerHandle);
     FEditorDelegates::OnMapOpened.Remove(MapOpenedHandle);
     FEditorDelegates::PostUndoRedo.Remove(UndoRedoHandle);
@@ -127,6 +140,10 @@ void UTheNotesEditorSubsystem::HandleUndoRedo()
 
 bool UTheNotesEditorSubsystem::HandleTick(float DeltaTime)
 {
+    // Also the retry: the directory may not have existed at startup, and the setting naming it can
+    // change while the editor runs.
+    StartWatchingStore();
+
     const FString CurrentLevel = LevelPackageNameOf(EditorWorld());
 
     // The editor already has a map open when this subsystem is created, and that map arrives
@@ -139,9 +156,86 @@ bool UTheNotesEditorSubsystem::HandleTick(float DeltaTime)
 
     if(bDirty)
     {
+        // Local changes go out first and the reload waits for the next tick: reloading over unsaved
+        // work would spawn the files' version of notes the developer has just moved.
         Flush();
+        return true;
+    }
+
+    if(bStoreChangedExternally)
+    {
+        bStoreChangedExternally = false;
+        ReloadFromStore();
     }
     return true;
+}
+
+void UTheNotesEditorSubsystem::HandleStoreDirectoryChanged(const TArray<FFileChangeData>& Changes)
+{
+    if(FPlatformTime::Seconds() - LastSelfWriteSeconds < TheNotesEditorSubsystemLocal::SelfWriteGraceSeconds)
+    {
+        return;
+    }
+
+    bStoreChangedExternally = true;
+}
+
+void UTheNotesEditorSubsystem::StartWatchingStore()
+{
+    const FString Directory = UTheNotesSettings::ResolvedNotesDirectory();
+    if(Directory == WatchedDirectory)
+    {
+        return;
+    }
+
+    StopWatchingStore();
+
+    if(!IFileManager::Get().DirectoryExists(*Directory))
+    {
+        return;
+    }
+
+    FDirectoryWatcherModule& Module = FModuleManager::LoadModuleChecked<FDirectoryWatcherModule>(TEXT("DirectoryWatcher"));
+    IDirectoryWatcher* Watcher = Module.Get();
+    if(!Watcher)
+    {
+        return;
+    }
+
+    // Default flags: files only, subdirectories included — which is the store's own shape, one
+    // directory per author under the root.
+    const bool bRegistered = Watcher->RegisterDirectoryChangedCallback_Handle(Directory, IDirectoryWatcher::FDirectoryChanged::CreateUObject(this, &UTheNotesEditorSubsystem::HandleStoreDirectoryChanged), StoreWatcherHandle);
+
+    if(!bRegistered)
+    {
+        UE_LOG(LogTheNotes, Warning, TEXT("Cannot watch '%s' for changes; notes arriving from source control will need TheNotes.Reload"), *Directory);
+        return;
+    }
+
+    WatchedDirectory = Directory;
+}
+
+void UTheNotesEditorSubsystem::StopWatchingStore()
+{
+    if(WatchedDirectory.IsEmpty())
+    {
+        return;
+    }
+
+    FDirectoryWatcherModule* Module = FModuleManager::GetModulePtr<FDirectoryWatcherModule>(TEXT("DirectoryWatcher"));
+    IDirectoryWatcher* Watcher = Module ? Module->Get() : nullptr;
+    if(Watcher)
+    {
+        Watcher->UnregisterDirectoryChangedCallback_Handle(WatchedDirectory, StoreWatcherHandle);
+    }
+
+    WatchedDirectory.Reset();
+    StoreWatcherHandle.Reset();
+}
+
+void UTheNotesEditorSubsystem::Reload()
+{
+    ReloadFromStore();
 }
 
 void UTheNotesEditorSubsystem::MarkDirty()
@@ -289,10 +383,7 @@ void UTheNotesEditorSubsystem::Flush()
 
             for(FTheNoteRecord& Candidate : *Records)
             {
-                const FTheNoteRecord* Before = Previous.FindByPredicate([&Candidate](const FTheNoteRecord& Existing)
-                {
-                    return Existing.Id == Candidate.Id;
-                });
+                const FTheNoteRecord* Before = Previous.FindByPredicate([&Candidate](const FTheNoteRecord& Existing) { return Existing.Id == Candidate.Id; });
 
                 // A note the file has never seen keeps the stamps it was created with, so a fresh
                 // note reads "written and last changed at the same moment" rather than showing an
@@ -317,9 +408,7 @@ void UTheNotesEditorSubsystem::Flush()
 
         // An author with nothing left in this level loses his file rather than keeping an empty
         // one: an empty file is a diff nobody asked for and a directory that never gets tidied.
-        const bool bWritten = (Records && Records->Num() > 0)
-            ? FTheNoteStore::SaveFile(Path, Author, TrackedLevel, *Records, Error)
-            : FTheNoteStore::DeleteFile(Path, Error);
+        const bool bWritten = (Records && Records->Num() > 0) ? FTheNoteStore::SaveFile(Path, Author, TrackedLevel, *Records, Error) : FTheNoteStore::DeleteFile(Path, Error);
 
         if(!bWritten)
         {
@@ -327,6 +416,7 @@ void UTheNotesEditorSubsystem::Flush()
         }
     }
 
+    LastSelfWriteSeconds = FPlatformTime::Seconds();
     NotesChanged.Broadcast();
 }
 
@@ -411,17 +501,18 @@ TArray<FTheNoteRecord> UTheNotesEditorSubsystem::CollectAllNotes() const
         }
     }
 
-    All.Sort([](const FTheNoteRecord& A, const FTheNoteRecord& B)
-    {
-        if(A.Author != B.Author)
+    All.Sort(
+        [](const FTheNoteRecord& A, const FTheNoteRecord& B)
         {
-            return A.Author < B.Author;
-        }
-        if(A.Collection != B.Collection)
-        {
-            return A.Collection < B.Collection;
-        }
-        return A.Title < B.Title;
-    });
+            if(A.Author != B.Author)
+            {
+                return A.Author < B.Author;
+            }
+            if(A.Collection != B.Collection)
+            {
+                return A.Collection < B.Collection;
+            }
+            return A.Title < B.Title;
+        });
     return All;
 }

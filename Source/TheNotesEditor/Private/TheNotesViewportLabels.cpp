@@ -20,50 +20,31 @@
 #include "TheNote.h"
 #include "TheNotesEditorSubsystem.h"
 #include "TheNotesModule.h"
+#include "TheNotesViewSettings.h"
 
 namespace TheNotesViewportLabelsLocal
 {
-/** Room around the text, and between the three blocks. From the owner's layout, 2026-09-05. */
-static constexpr float Padding = 18.0f;
-static constexpr float TitleGap = 16.0f;
-static constexpr float AuthorGap = 14.0f;
-static constexpr float LineGap = 3.0f;
-
-/** How far below the note's own point the panel starts, and how wide the text is allowed to run. */
-static constexpr float PanelDrop = 22.0f;
-static constexpr float MaxTextWidth = 420.0f;
-
-static const FLinearColor TitleColour(0.99f, 0.59f, 0.12f, 1.0f);
-static const FLinearColor BodyColour(1.0f, 1.0f, 1.0f, 1.0f);
-static const FLinearColor AuthorColour(0.44f, 0.88f, 0.41f, 1.0f);
-static const FLinearColor BackdropColour(0.0f, 0.0f, 0.0f, 1.0f);
-static const FLinearColor BorderColour(1.0f, 1.0f, 1.0f, 1.0f);
-
-static TAutoConsoleVariable<int32> CVarDebugHover(
-    TEXT("TheNotes.DebugHover"),
-    0,
-    TEXT("Log what the cursor is over in the level viewport, and the size of the panel it draws."),
-    ECVF_Default);
+static TAutoConsoleVariable<int32> CVarDebugHover(TEXT("TheNotes.DebugHover"), 0, TEXT("Log what the cursor is over in the level viewport, and the size of the panel it draws."), ECVF_Default);
 
 /** The editor's own fonts, so a note reads like the rest of the editor rather than like a debug print. */
 FSlateFontInfo TitleFont()
 {
     FSlateFontInfo Font = FAppStyle::Get().GetFontStyle("NormalFontBold");
-    Font.Size = 18;
+    Font.Size = UTheNotesViewSettings::Get().TitleFontSize;
     return Font;
 }
 
 FSlateFontInfo BodyFont()
 {
     FSlateFontInfo Font = FAppStyle::Get().GetFontStyle("NormalFont");
-    Font.Size = 11;
+    Font.Size = UTheNotesViewSettings::Get().BodyFontSize;
     return Font;
 }
 
 FSlateFontInfo AuthorFont()
 {
     FSlateFontInfo Font = FAppStyle::Get().GetFontStyle("NormalFontBold");
-    Font.Size = 14;
+    Font.Size = UTheNotesViewSettings::Get().AuthorFontSize;
     return Font;
 }
 
@@ -109,6 +90,8 @@ float ShapedHeight(const FShapedGlyphSequencePtr& Sequence)
 /** Splits one authored line into lines that fit the column, breaking on spaces where it can. */
 void SplitToWidth(const FString& Authored, const FSlateFontInfo& Font, float DPIScale, TArray<FString>& OutLines)
 {
+    const float Column = UTheNotesViewSettings::Get().MaxTextWidth * DPIScale;
+
     FString Line = Authored;
     Line.ReplaceInline(TEXT("\r"), TEXT(""));
 
@@ -116,7 +99,7 @@ void SplitToWidth(const FString& Authored, const FSlateFontInfo& Font, float DPI
     {
         // Measured, not counted in characters: at this font a line of Cyrillic and a line of Latin
         // of the same length are nowhere near the same width on screen.
-        if(ShapedWidth(Shape(Line, Font, DPIScale)) <= MaxTextWidth * DPIScale)
+        if(ShapedWidth(Shape(Line, Font, DPIScale)) <= Column)
         {
             OutLines.Add(Line);
             return;
@@ -125,7 +108,7 @@ void SplitToWidth(const FString& Authored, const FSlateFontInfo& Font, float DPI
         int32 Fits = 0;
         for(int32 Index = 1; Index <= Line.Len(); ++Index)
         {
-            if(ShapedWidth(Shape(Line.Left(Index), Font, DPIScale)) > MaxTextWidth * DPIScale)
+            if(ShapedWidth(Shape(Line.Left(Index), Font, DPIScale)) > Column)
             {
                 break;
             }
@@ -181,13 +164,12 @@ TArray<FString> LayOutBody(const FString& Body, const FSlateFontInfo& Font, floa
 FVector2D DrawOrMeasurePanel(UCanvas* Canvas, const FString& Title, const TArray<FString>& Body, const FString& Author, const FVector2D& TopCentre);
 
 /**
- * The panel, following the layout the owner drew (2026-09-05): a black ground inside a white
- * border, the title in orange caps, the note text in white, and the author in green caps along the
+ * The panel: a ground inside a border, the title above the note text, and the author along the
  * bottom right. TopCentre is where the panel hangs from — its top edge, centred horizontally.
+ * Spacing, colours and font sizes come from the view settings; nothing here is fixed.
  *
- * Sized to its contents rather than to the fixed rectangle of the layout: this one is a hover panel
- * in a working viewport, and a fixed panel of those proportions would cover most of it. The
- * fullscreen note in OWH-236 is where the size of the layout belongs.
+ * Sized to its contents rather than to a fixed rectangle: this is a hover panel in a working
+ * viewport, and a panel of constant size would cover most of it whatever the note says.
  */
 FVector2D DrawPanel(UCanvas* Canvas, const FString& Title, const TArray<FString>& Body, const FString& Author, const FVector2D& TopCentre)
 {
@@ -205,11 +187,13 @@ FVector2D DrawOrMeasurePanel(UCanvas* Canvas, const FString& Title, const TArray
     // (CanvasItem.cpp:881), so everything here is laid out in device pixels and only the text
     // positions are divided back down on the way in. Mixing the two is what put the panel and its
     // words in different places on screen.
+    const UTheNotesViewSettings& View = UTheNotesViewSettings::Get();
+
     const float DPI = Canvas ? Canvas->GetDPIScale() : 1.0f;
-    const float Pad = Padding * DPI;
-    const float TitleSpacing = TitleGap * DPI;
-    const float AuthorSpacing = AuthorGap * DPI;
-    const float LineSpacing = LineGap * DPI;
+    const float Pad = View.Padding * DPI;
+    const float TitleSpacing = View.TitleGap * DPI;
+    const float AuthorSpacing = View.AuthorGap * DPI;
+    const float LineSpacing = View.LineGap * DPI;
 
     const FShapedGlyphSequencePtr TitleGlyphs = Shape(Title, TitleFont(), DPI);
     const FShapedGlyphSequencePtr AuthorGlyphs = Shape(Author, AuthorFont(), DPI);
@@ -258,22 +242,25 @@ FVector2D DrawOrMeasurePanel(UCanvas* Canvas, const FString& Title, const TArray
 
     const FVector2D TopLeft(TopCentre.X - Size.X * 0.5f, TopCentre.Y);
 
-    // Opaque, not a wash: over a bright floor a translucent panel left the text barely readable,
-    // which is the whole complaint this styling answers.
-    FCanvasTileItem Backdrop(TopLeft, Size, BackdropColour);
-    Backdrop.BlendMode = SE_BLEND_Opaque;
+    // Opaque unless the setting says otherwise: over a bright floor a translucent panel leaves the
+    // text barely readable, so the alpha decides the blend rather than the blend being fixed.
+    FCanvasTileItem Backdrop(TopLeft, Size, View.BackdropColour);
+    Backdrop.BlendMode = View.BackdropColour.A >= 1.0f ? SE_BLEND_Opaque : SE_BLEND_Translucent;
     Canvas->DrawItem(Backdrop);
 
-    FCanvasBoxItem Border(TopLeft, Size);
-    Border.SetColor(BorderColour);
-    Border.LineThickness = 2.0f;
-    Canvas->DrawItem(Border);
+    if(View.BorderThickness > 0.0f)
+    {
+        FCanvasBoxItem Border(TopLeft, Size);
+        Border.SetColor(View.BorderColour);
+        Border.LineThickness = View.BorderThickness;
+        Canvas->DrawItem(Border);
+    }
 
     float Y = static_cast<float>(TopLeft.Y) + Pad;
 
     if(TitleGlyphs.IsValid())
     {
-        FCanvasShapedTextItem Item(FVector2D(TopLeft.X + Pad, Y) / DPI, TitleGlyphs.ToSharedRef(), TitleColour);
+        FCanvasShapedTextItem Item(FVector2D(TopLeft.X + Pad, Y) / DPI, TitleGlyphs.ToSharedRef(), View.TitleColour);
         Canvas->DrawItem(Item);
     }
     Y += TitleHeight;
@@ -285,7 +272,7 @@ FVector2D DrawOrMeasurePanel(UCanvas* Canvas, const FString& Title, const TArray
         {
             if(Glyphs.IsValid())
             {
-                FCanvasShapedTextItem Item(FVector2D(TopLeft.X + Pad, Y) / DPI, Glyphs.ToSharedRef(), BodyColour);
+                FCanvasShapedTextItem Item(FVector2D(TopLeft.X + Pad, Y) / DPI, Glyphs.ToSharedRef(), View.BodyColour);
                 Canvas->DrawItem(Item);
             }
             Y += BodyLineHeight;
@@ -295,11 +282,11 @@ FVector2D DrawOrMeasurePanel(UCanvas* Canvas, const FString& Title, const TArray
 
     if(AuthorGlyphs.IsValid())
     {
-        // Bottom right, as in the layout: the signature belongs to the whole note, not to the line
-        // it happens to sit next to.
+        // Bottom right: the signature belongs to the whole note, not to the line it happens to sit
+        // next to.
         Y += AuthorSpacing;
         const float X = static_cast<float>(TopLeft.X) + Size.X - Pad - ShapedWidth(AuthorGlyphs);
-        FCanvasShapedTextItem Item(FVector2D(X, Y) / DPI, AuthorGlyphs.ToSharedRef(), AuthorColour);
+        FCanvasShapedTextItem Item(FVector2D(X, Y) / DPI, AuthorGlyphs.ToSharedRef(), View.AuthorColour);
         Canvas->DrawItem(Item);
     }
 
@@ -375,11 +362,7 @@ bool FTheNotesViewportLabels::Tick(float DeltaTime)
 
     if(bDebug)
     {
-        UE_LOG(LogTheNotes, Log, TEXT("hover: cursor=(%d,%d) viewport=%dx%d proxy=%s note=%s"),
-            Cursor.X, Cursor.Y,
-            LastViewportSize.X, LastViewportSize.Y,
-            Proxy ? Proxy->GetType()->GetName() : TEXT("none"),
-            Note ? *Note->Record.Title : TEXT("none"));
+        UE_LOG(LogTheNotes, Log, TEXT("hover: cursor=(%d,%d) viewport=%dx%d proxy=%s note=%s"), Cursor.X, Cursor.Y, LastViewportSize.X, LastViewportSize.Y, Proxy ? Proxy->GetType()->GetName() : TEXT("none"), Note ? *Note->Record.Title : TEXT("none"));
     }
     return true;
 }
@@ -397,10 +380,7 @@ void FTheNotesViewportLabels::Draw(UCanvas* Canvas, APlayerController* Controlle
     // carries the one it renders to, so this is an identity test rather than a guess from sizes —
     // two viewports in a split layout are the same size, and the cursor is only ever in one.
     FViewport* Hovered = GEditor->GetActiveViewport();
-    const bool bCursorIsHere = Hovered
-        && Canvas->SceneView
-        && Canvas->SceneView->Family
-        && Canvas->SceneView->Family->RenderTarget == static_cast<const FRenderTarget*>(Hovered);
+    const bool bCursorIsHere = Hovered && Canvas->SceneView && Canvas->SceneView->Family && Canvas->SceneView->Family->RenderTarget == static_cast<const FRenderTarget*>(Hovered);
     if(!bCursorIsHere)
     {
         return;
@@ -415,10 +395,7 @@ void FTheNotesViewportLabels::Draw(UCanvas* Canvas, APlayerController* Controlle
     // Held in a local: GetLevelNotes returns by value, and a pointer into the temporary would
     // dangle the moment the full expression ended.
     const TArray<ATheNote*> Notes = Subsystem->GetLevelNotes();
-    ATheNote* const* Found = Notes.FindByPredicate([this](const ATheNote* Candidate)
-    {
-        return Candidate->Record.Id == HoveredNote;
-    });
+    ATheNote* const* Found = Notes.FindByPredicate([this](const ATheNote* Candidate) { return Candidate->Record.Id == HoveredNote; });
     if(!Found)
     {
         return;
@@ -433,25 +410,24 @@ void FTheNotesViewportLabels::Draw(UCanvas* Canvas, APlayerController* Controlle
         return;
     }
 
-    // Caps for the title and the signature, as the layout has them. The stored text is untouched:
-    // this is how a note is shown, not what it says.
-    const FString Title = (Note->Record.Title.IsEmpty() ? FString(TEXT("DEV Note")) : Note->Record.Title).ToUpper();
+    // Caps are a setting, and either way the stored text is untouched: this is how a note is shown,
+    // not what it says.
+    const UTheNotesViewSettings& View = UTheNotesViewSettings::Get();
+    const FString Authored = Note->Record.Title.IsEmpty() ? FString(TEXT("DEV Note")) : Note->Record.Title;
+    const FString Title = View.bUppercaseTitle ? Authored.ToUpper() : Authored;
+    const FString Author = View.bUppercaseAuthor ? Note->Record.Author.ToUpper() : Note->Record.Author;
 
-    const FVector2D Size = DrawPanel(Canvas,
-        Title,
-        LayOutBody(Note->Record.Body, BodyFont(), Canvas->GetDPIScale()),
-        Note->Record.Author.ToUpper(),
-        FVector2D(Anchor.X, Anchor.Y + PanelDrop * Canvas->GetDPIScale()));
+    const FVector2D Size = DrawPanel(Canvas, Title, LayOutBody(Note->Record.Body, BodyFont(), Canvas->GetDPIScale()), Author, FVector2D(Anchor.X, Anchor.Y + View.PanelDrop * Canvas->GetDPIScale()));
 
     if(CVarDebugHover.GetValueOnGameThread() != 0)
     {
-        UE_LOG(LogTheNotes, Log, TEXT("panel: %.0fx%.0f at (%.0f,%.0f) canvas=%dx%d dpi=%.2f"),
-            Size.X, Size.Y, Anchor.X, Anchor.Y, Canvas->SizeX, Canvas->SizeY, Canvas->GetDPIScale());
+        UE_LOG(LogTheNotes, Log, TEXT("panel: %.0fx%.0f at (%.0f,%.0f) canvas=%dx%d dpi=%.2f"), Size.X, Size.Y, Anchor.X, Anchor.Y, Canvas->SizeX, Canvas->SizeY, Canvas->GetDPIScale());
     }
 }
 
 FVector2D FTheNotesViewportLabels::MeasurePanel(const FString& Title, const TArray<FString>& Body, const FString& Author)
 {
     using namespace TheNotesViewportLabelsLocal;
-    return DrawOrMeasurePanel(nullptr, Title.ToUpper(), Body, Author.ToUpper(), FVector2D::ZeroVector);
+    const UTheNotesViewSettings& View = UTheNotesViewSettings::Get();
+    return DrawOrMeasurePanel(nullptr, View.bUppercaseTitle ? Title.ToUpper() : Title, Body, View.bUppercaseAuthor ? Author.ToUpper() : Author, FVector2D::ZeroVector);
 }

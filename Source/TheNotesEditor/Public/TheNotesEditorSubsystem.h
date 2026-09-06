@@ -44,19 +44,21 @@ public:
     TArray<class ATheNote*> GetLevelNotes() const;
 
     /** The long package name of the level whose notes are loaded, or empty when none is. */
-    const FString& GetTrackedLevel() const
-    {
-        return TrackedLevel;
-    }
+    const FString& GetTrackedLevel() const { return TrackedLevel; }
 
     /** Writes every pending change to disk immediately. */
     void Flush();
 
+    /**
+     * Throws away the spawned notes and reads the open level's files again.
+     *
+     * The one thing that makes notes arriving from source control visible without reopening the
+     * map. Pending local changes are written first, so this never costs unsaved work.
+     */
+    void Reload();
+
     /** Raised after the store or the set of note actors changes, so the browser can refresh. */
-    FSimpleMulticastDelegate& OnNotesChanged()
-    {
-        return NotesChanged;
-    }
+    FSimpleMulticastDelegate& OnNotesChanged() { return NotesChanged; }
 
 private:
     void HandleMapOpened(const FString& Filename, bool bAsTemplate);
@@ -64,7 +66,18 @@ private:
     void HandleActorDeleted(AActor* Actor);
     void HandleObjectPropertyChanged(UObject* Object, struct FPropertyChangedEvent& Event);
     void HandleUndoRedo();
+    void HandleStoreDirectoryChanged(const TArray<struct FFileChangeData>& Changes);
     bool HandleTick(float DeltaTime);
+
+    /**
+     * Registers the file watch, or re-registers it when the configured directory has changed.
+     *
+     * Silently does nothing while the directory does not exist: the platform watcher opens an
+     * existing handle and cannot wait for one to appear, and the ticker calls this again — so a
+     * project whose first note has not been written yet starts watching the moment it is.
+     */
+    void StartWatchingStore();
+    void StopWatchingStore();
 
     class UWorld* EditorWorld() const;
     static FString LevelPackageNameOf(const class UWorld* World);
@@ -88,6 +101,21 @@ private:
 
     bool bDirty = false;
 
+    /** The directory the watch is registered on. Empty means nothing is being watched. */
+    FString WatchedDirectory;
+
+    /** Raised by the watcher, acted on by the ticker, so a burst of file events costs one reload. */
+    bool bStoreChangedExternally = false;
+
+    /**
+     * When this subsystem last wrote the store, on the platform clock.
+     *
+     * Our own writes come back through the watcher like anyone else's, and a reload triggered by
+     * them would destroy and respawn the very actors the developer is dragging. Anything arriving
+     * within the grace window after a write of ours is therefore taken to be that write.
+     */
+    double LastSelfWriteSeconds = 0.0;
+
     FSimpleMulticastDelegate NotesChanged;
 
     FDelegateHandle MapOpenedHandle;
@@ -95,5 +123,6 @@ private:
     FDelegateHandle ActorDeletedHandle;
     FDelegateHandle PropertyChangedHandle;
     FDelegateHandle UndoRedoHandle;
+    FDelegateHandle StoreWatcherHandle;
     FTSTicker::FDelegateHandle TickerHandle;
 };

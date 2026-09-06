@@ -7,7 +7,9 @@ public class TheNotesEditor : ModuleRules
     public TheNotesEditor(ReadOnlyTargetRules Target) : base(Target)
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-        bWarningsAsErrors = true;
+        // Strict only in its home project: a consumer's toolchain or a newer engine must not turn a
+        // warning into a hard failure of THEIR build over a plugin they cannot edit.
+        bWarningsAsErrors = Target.ProjectFile != null && Target.ProjectFile.GetFileNameWithoutExtension() == "TheGame";
 
         PublicDependencyModuleNames.AddRange(new string[]
         {
@@ -19,6 +21,8 @@ public class TheNotesEditor : ModuleRules
 
         PrivateDependencyModuleNames.AddRange(new string[]
         {
+            "DeveloperSettings",
+            "DirectoryWatcher",
             "EditorSubsystem",
             "InputCore",
             "LevelEditor",

@@ -4,6 +4,7 @@
 
 #include "Editor.h"
 #include "ToolMenus.h"
+#include "HAL/IConsoleManager.h"
 #include "WorkspaceMenuStructure.h"
 #include "WorkspaceMenuStructureModule.h"
 #include "Framework/Docking/TabManager.h"
@@ -22,22 +23,34 @@ static const FName BrowserTabName("TheNotesBrowser");
 static const FName SectionName("TheNotes");
 
 /** The two viewport menus a note can be created from: with something selected, and with nothing. */
-static const TCHAR* ContextMenus[] =
+static const TCHAR* ContextMenus[] = {TEXT("LevelEditor.ActorContextMenu"), TEXT("LevelEditor.EmptySelectionContextMenu")};
+
+UTheNotesEditorSubsystem* Subsystem()
 {
-    TEXT("LevelEditor.ActorContextMenu"),
-    TEXT("LevelEditor.EmptySelectionContextMenu")
-};
+    return GEditor ? GEditor->GetEditorSubsystem<UTheNotesEditorSubsystem>() : nullptr;
+}
 
 void CreateNoteAtClickLocation()
 {
-    UTheNotesEditorSubsystem* Subsystem = GEditor ? GEditor->GetEditorSubsystem<UTheNotesEditorSubsystem>() : nullptr;
-    if(Subsystem)
+    if(UTheNotesEditorSubsystem* Notes = Subsystem())
     {
         // Where the right-click ray hit the world. The editor caches it on every click for exactly
         // this purpose — it is what the engine's own "place actor here" entries read.
-        Subsystem->CreateNoteAt(GEditor->ClickLocation);
+        Notes->CreateNoteAt(GEditor->ClickLocation);
     }
 }
+
+void ReloadNotes()
+{
+    if(UTheNotesEditorSubsystem* Notes = Subsystem())
+    {
+        Notes->Reload();
+    }
+}
+
+// The manual way out when the watcher cannot see the change — a network share, a checkout restored
+// underneath the editor, a platform whose file notifications the engine does not implement.
+static FAutoConsoleCommand ReloadCommand(TEXT("TheNotes.Reload"), TEXT("Read the open level's note files again, picking up notes that arrived from source control."), FConsoleCommandDelegate::CreateStatic(&ReloadNotes));
 }
 
 void FTheNotesEditorModule::StartupModule()
@@ -86,8 +99,7 @@ void FTheNotesEditorModule::RegisterMenus()
         }
 
         FToolMenuSection& Section = Menu->FindOrAddSection(TheNotesEditorLocal::SectionName, LOCTEXT("NotesSection", "DEV Notes"));
-        Section.AddMenuEntry(
-            TEXT("CreateDevNoteHere"),
+        Section.AddMenuEntry(TEXT("CreateDevNoteHere"),
             LOCTEXT("CreateDevNoteHere", "Create DEV Note Here"),
             LOCTEXT("CreateDevNoteHereTooltip", "Puts a developer note at this point in the scene"),
             FSlateIcon(FTheNotesEditorStyle::StyleName(), "TheNotes.TabIcon"),
@@ -97,11 +109,7 @@ void FTheNotesEditorModule::RegisterMenus()
 
 TSharedRef<SDockTab> FTheNotesEditorModule::SpawnBrowserTab(const FSpawnTabArgs& Args)
 {
-    return SNew(SDockTab)
-        .TabRole(ETabRole::NomadTab)
-        [
-            SNew(STheNotesBrowser)
-        ];
+    return SNew(SDockTab).TabRole(ETabRole::NomadTab)[SNew(STheNotesBrowser)];
 }
 
 #undef LOCTEXT_NAMESPACE

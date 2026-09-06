@@ -8,13 +8,13 @@
 /**
  * Shows a note's title and text over the viewport while the cursor is on it.
  *
- * Nothing is drawn otherwise (owner, 2026-09-05): the icon alone says a note is there, and a scene
- * with a dozen notes in it stays readable. The panel hangs off the note's own projected position —
- * it is that note's label, and one that follows the mouse reads as a tooltip for the viewport
- * rather than for the thing in it (owner, 2026-09-05, on seeing it at the cursor).
+ * Nothing is drawn otherwise: the icon alone says a note is there, and a scene with a dozen notes in
+ * it stays readable. The panel hangs off the note's own projected position — it is that note's
+ * label, and one that follows the mouse reads as a tooltip for the viewport rather than for the
+ * thing in it.
  *
- * The panel follows the owner's layout (2026-09-05): a black ground inside a white border, the
- * title in orange caps, the text in white, the author in green caps along the bottom right. Text is
+ * The panel's default look is a black ground inside a white border, the title in orange caps, the
+ * text in white, the author in green caps along the bottom right. Every part of it is a setting. Text is
  * drawn in the editor's own Slate fonts and measured through the Slate font measure service, so a
  * note reads like the rest of the editor and wrapping is by width, not by counting characters.
  *

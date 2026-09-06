@@ -25,7 +25,7 @@ struct THENOTES_API FTheNoteRecord
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Note")
     FString Title;
 
-    /** The note itself. Hidden until the cursor is over it in the editor, or the player opens it. */
+    /** The note itself. Hidden until the cursor is over the note in the editor. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Note", meta = (MultiLine = true))
     FString Body;
 
@@ -48,7 +48,10 @@ struct THENOTES_API FTheNoteRecord
     UPROPERTY()
     FVector Location = FVector::ZeroVector;
 
-    /** Whether players see this note. A note without it stays a developer's, visible only here. */
+    /**
+     * Marks a note as intended for players rather than for the team. Reserved: the store keeps the
+     * flag and nothing reads it at runtime yet, so today every note is a developer's.
+     */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Note")
     bool bShowInGame = false;
 
@@ -60,10 +63,7 @@ struct THENOTES_API FTheNoteRecord
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Note")
     FDateTime UpdatedAt = FDateTime(0);
 
-    bool IsValidRecord() const
-    {
-        return Id.IsValid();
-    }
+    bool IsValidRecord() const { return Id.IsValid(); }
 
     /**
      * Equal in everything a human wrote, ignoring when it was written.
@@ -74,13 +74,6 @@ struct THENOTES_API FTheNoteRecord
      */
     bool EqualsIgnoringStamps(const FTheNoteRecord& Other) const
     {
-        return Id == Other.Id
-            && Title == Other.Title
-            && Body == Other.Body
-            && Author == Other.Author
-            && Collection == Other.Collection
-            && Level == Other.Level
-            && bShowInGame == Other.bShowInGame
-            && Location.Equals(Other.Location, 0.01);
+        return Id == Other.Id && Title == Other.Title && Body == Other.Body && Author == Other.Author && Collection == Other.Collection && Level == Other.Level && bShowInGame == Other.bShowInGame && Location.Equals(Other.Location, 0.01);
     }
 };

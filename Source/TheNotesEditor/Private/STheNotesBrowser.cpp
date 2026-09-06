@@ -3,6 +3,8 @@
 #include "STheNotesBrowser.h"
 
 #include "Editor.h"
+#include "Widgets/SBoxPanel.h"
+#include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SSearchBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
@@ -42,20 +44,14 @@ bool Matches(const FTheNoteRecord& Record, const FString& Filter)
     {
         return true;
     }
-    return Record.Title.Contains(Filter)
-        || Record.Body.Contains(Filter)
-        || Record.Author.Contains(Filter)
-        || Record.Collection.Contains(Filter)
-        || Record.Level.Contains(Filter);
+    return Record.Title.Contains(Filter) || Record.Body.Contains(Filter) || Record.Author.Contains(Filter) || Record.Collection.Contains(Filter) || Record.Level.Contains(Filter);
 }
 }
 
 class STheNoteRow : public SMultiColumnTableRow<TSharedPtr<FTheNoteRecord>>
 {
 public:
-    SLATE_BEGIN_ARGS(STheNoteRow)
-    {
-    }
+    SLATE_BEGIN_ARGS(STheNoteRow) { }
     SLATE_ARGUMENT(TSharedPtr<FTheNoteRecord>, Record)
     SLATE_END_ARGS()
 
@@ -89,14 +85,7 @@ public:
             Text = TheNotesBrowserLocal::ShortLevelName(Record->Level);
         }
 
-        return SNew(SBox)
-            .Padding(FMargin(6.0f, 2.0f))
-            .VAlign(VAlign_Center)
-            [
-                SNew(STextBlock)
-                .Text(FText::FromString(Text))
-                .ToolTipText(Record.IsValid() ? FText::FromString(Record->Body) : FText::GetEmpty())
-            ];
+        return SNew(SBox).Padding(FMargin(6.0f, 2.0f)).VAlign(VAlign_Center)[SNew(STextBlock).Text(FText::FromString(Text)).ToolTipText(Record.IsValid() ? FText::FromString(Record->Body) : FText::GetEmpty())];
     }
 
 private:
@@ -114,43 +103,23 @@ void STheNotesBrowser::Construct(const FArguments& InArgs)
         }
     }
 
-    ChildSlot
-    [
-        SNew(SVerticalBox)
-        + SVerticalBox::Slot()
-        .AutoHeight()
-        .Padding(4.0f)
-        [
-            SNew(SSearchBox)
-            .HintText(LOCTEXT("FilterHint", "Filter by title, text, author, collection or level"))
-            .OnTextChanged(this, &STheNotesBrowser::HandleFilterChanged)
-        ]
-        + SVerticalBox::Slot()
-        .FillHeight(1.0f)
-        [
-            SAssignNew(ListView, SListView<TSharedPtr<FTheNoteRecord>>)
-            .ListItemsSource(&Rows)
-            .OnGenerateRow(this, &STheNotesBrowser::MakeRow)
-            .OnMouseButtonDoubleClick(this, &STheNotesBrowser::HandleRowActivated)
-            .SelectionMode(ESelectionMode::Single)
-            .HeaderRow
-            (
-                SNew(SHeaderRow)
-                + SHeaderRow::Column(TheNotesBrowserColumns::Author)
-                .DefaultLabel(LOCTEXT("AuthorColumn", "Author"))
-                .FillWidth(0.18f)
-                + SHeaderRow::Column(TheNotesBrowserColumns::Collection)
-                .DefaultLabel(LOCTEXT("CollectionColumn", "Collection"))
-                .FillWidth(0.18f)
-                + SHeaderRow::Column(TheNotesBrowserColumns::Title)
-                .DefaultLabel(LOCTEXT("TitleColumn", "Title"))
-                .FillWidth(0.46f)
-                + SHeaderRow::Column(TheNotesBrowserColumns::Level)
-                .DefaultLabel(LOCTEXT("LevelColumn", "Level"))
-                .FillWidth(0.18f)
-            )
-        ]
-    ];
+    ChildSlot[SNew(SVerticalBox) +
+              SVerticalBox::Slot().AutoHeight().Padding(4.0f)
+                  [SNew(SHorizontalBox) + SHorizontalBox::Slot().FillWidth(1.0f)[SNew(SSearchBox).HintText(LOCTEXT("FilterHint", "Filter by title, text, author, collection or level")).OnTextChanged(this, &STheNotesBrowser::HandleFilterChanged)] +
+                      SHorizontalBox::Slot()
+                          .AutoWidth()
+                          .Padding(4.0f, 0.0f, 0.0f, 0.0f)
+                          .VAlign(VAlign_Center)
+                              [SNew(SButton).Text(LOCTEXT("Reload", "Reload")).ToolTipText(LOCTEXT("ReloadTooltip", "Read the note files again, picking up notes that arrived from source control")).OnClicked(this, &STheNotesBrowser::HandleReloadClicked)]] +
+              SVerticalBox::Slot().FillHeight(1.0f)[SAssignNew(ListView, SListView<TSharedPtr<FTheNoteRecord>>)
+                      .ListItemsSource(&Rows)
+                      .OnGenerateRow(this, &STheNotesBrowser::MakeRow)
+                      .OnMouseButtonDoubleClick(this, &STheNotesBrowser::HandleRowActivated)
+                      .SelectionMode(ESelectionMode::Single)
+                      .HeaderRow(SNew(SHeaderRow) + SHeaderRow::Column(TheNotesBrowserColumns::Author).DefaultLabel(LOCTEXT("AuthorColumn", "Author")).FillWidth(0.18f) +
+                                 SHeaderRow::Column(TheNotesBrowserColumns::Collection).DefaultLabel(LOCTEXT("CollectionColumn", "Collection")).FillWidth(0.18f) +
+                                 SHeaderRow::Column(TheNotesBrowserColumns::Title).DefaultLabel(LOCTEXT("TitleColumn", "Title")).FillWidth(0.46f) +
+                                 SHeaderRow::Column(TheNotesBrowserColumns::Level).DefaultLabel(LOCTEXT("LevelColumn", "Level")).FillWidth(0.18f))]];
 
     Refresh();
 }
@@ -190,6 +159,19 @@ void STheNotesBrowser::HandleFilterChanged(const FText& Text)
 {
     Filter = Text.ToString();
     Refresh();
+}
+
+FReply STheNotesBrowser::HandleReloadClicked()
+{
+    if(GEditor)
+    {
+        UTheNotesEditorSubsystem* Subsystem = GEditor->GetEditorSubsystem<UTheNotesEditorSubsystem>();
+        if(Subsystem)
+        {
+            Subsystem->Reload();
+        }
+    }
+    return FReply::Handled();
 }
 
 void STheNotesBrowser::Refresh()
