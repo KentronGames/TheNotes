@@ -449,10 +449,26 @@ ATheNote* UTheNotesEditorSubsystem::CreateNoteAt(const FVector& Location)
 
     const FScopedTransaction Transaction(NSLOCTEXT("TheNotes", "CreateNote", "Create DEV Note"));
 
+    // What the note is ABOUT, when the answer is on screen and selected. A coordinate says where a
+    // problem is and not what it is attached to, and the actor's own label is the cheapest way to carry
+    // that: it is a title the author can then rewrite, not a reference that can dangle.
+    FString Subject;
+    if(GEditor)
+    {
+        TArray<AActor*> Selected;
+        GEditor->GetSelectedActors()->GetSelectedObjects<AActor>(Selected);
+        if(Selected.Num() == 1 && !Selected[0]->IsA<ATheNote>())
+        {
+            Subject = Selected[0]->GetActorLabel();
+        }
+    }
+
     ATheNote* Note = nullptr;
     {
         TGuardValue<bool> Applying(bApplyingStore, true);
-        Note = SpawnFor(FTheNoteStore::MakeRecord(TrackedLevel, Location));
+        FTheNoteRecord Record = FTheNoteStore::MakeRecord(TrackedLevel, Location);
+        Record.Title = Subject;
+        Note = SpawnFor(Record);
     }
     if(!Note)
     {
@@ -485,6 +501,32 @@ bool UTheNotesEditorSubsystem::FocusOnNote(const FGuid& Id)
             }
             return true;
         }
+    }
+    return false;
+}
+
+bool UTheNotesEditorSubsystem::DeleteNote(const FGuid& Id)
+{
+    UWorld* World = EditorWorld();
+    if(!World)
+    {
+        return false;
+    }
+
+    for(ATheNote* Note : GetLevelNotes())
+    {
+        if(Note->Record.Id != Id)
+        {
+            continue;
+        }
+
+        const FScopedTransaction Transaction(NSLOCTEXT("TheNotes", "DeleteNote", "Delete DEV Note"));
+
+        // Not guarded by bApplyingStore: this IS a change the store has to hear about, and the author
+        // whose last note this was stays in KnownAuthors so the flush writes his file empty and removes it.
+        World->DestroyActor(Note);
+        MarkDirty();
+        return true;
     }
     return false;
 }

@@ -10,18 +10,29 @@ nothing it does is written into your maps.
 ## What it does
 
 **A note stands in the scene.** Right-click anywhere in the level viewport and pick **Create DEV Note
-Here** — with something selected or with nothing. The note appears where the click ray hit the world,
-already selected, so the title goes straight into the details panel.
+Here**, or press **Shift+N** to put one wherever the cursor is pointing. The note appears already
+selected, so the title goes straight into the details panel — and if exactly one actor was selected when
+you made it, that actor's name is already in the title, because a coordinate says where a problem is and
+not what it is attached to.
 
 **Hover to read it.** Put the cursor on a note and its panel opens next to it: the title in orange, the
 text in white, the author signed along the bottom. The panel is sized to what it holds rather than to a
 fixed rectangle, so a one-line note does not cover the viewport. It hangs off the note, not off the cursor
 — it labels the thing, not the screen.
 
+**Shift+P pins it open**, so the note can be read while the thing it is about is being fixed. **Show All
+DEV Notes** puts every note's title on screen at once — titles only, because a dozen full panels is a wall
+of text with a level somewhere behind it.
+
 **Every note in one list.** The **DEV Notes** tab (Window → Tools) lists notes from every level, not only
-the open one, with author, collection, title and level as columns. One filter box matches against all of
-them plus the note text. Double-click a row and the viewport flies to that note, selecting it — including
-when the note is in a level you do not currently have open.
+the open one: author, collection, title, level, and when the note was written and last changed. Every
+column sorts. The filter box takes words to look for anywhere, or `author:`, `level:` and `collection:` to
+name a field — every term has to match. A **This level** box narrows the list to the map that is open.
+Double-click a row and the viewport flies to that note; **Delete** removes the selected one.
+
+**Notes are closed by deleting them.** There is no "resolved" flag on purpose: the store is plain text, so
+a repository that commits it already remembers every note that ever stood in a level, and what it said.
+Deleting is how a thought stops taking up space in a scene without stopping being recoverable.
 
 **Notes never touch the map.** The actors are spawned transient, so a note can never appear in a level
 designer's diff. The note itself lives as plain text outside the content tree: text a human reads in a

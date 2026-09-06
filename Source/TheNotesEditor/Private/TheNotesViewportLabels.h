@@ -33,6 +33,22 @@ public:
     void Unregister();
 
     /**
+     * Draws every note's panel at once instead of only the one under the cursor.
+     *
+     * Titles only in this mode, and deliberately: a dozen full panels is a wall of text with a level
+     * somewhere behind it, while a dozen titles is the thing this mode is for — seeing what you left
+     * yourself all over a map without hunting for the icons.
+     */
+    void SetShowAll(bool bInShowAll) { bShowAll = bInShowAll; }
+
+    bool IsShowingAll() const { return bShowAll; }
+
+    /** Keeps the note under the cursor open, so its text can be read while the thing it is about is fixed. */
+    void TogglePinnedToHovered();
+
+    bool HasPinnedNote() const { return PinnedNote.IsValid(); }
+
+    /**
      * The size the panel would take for this content, laid out by the very code that draws it.
      *
      * Exposed because it is the half of this that a headless run can check: -nullrhi draws nothing,
@@ -47,6 +63,11 @@ private:
 
     /** Identity of the note under the cursor, invalid when there is none. */
     FGuid HoveredNote;
+
+    /** The note held open regardless of the cursor, invalid when none is pinned. */
+    FGuid PinnedNote;
+
+    bool bShowAll = false;
 
     /** Where the cursor was when that was last worked out, so a still mouse costs nothing. */
     FIntPoint LastCursor = FIntPoint(-1, -1);

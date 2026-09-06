@@ -37,6 +37,15 @@ public:
     /** Selects the note with this identity and moves the viewport cameras to it. */
     bool FocusOnNote(const FGuid& Id);
 
+    /**
+     * Removes the note with this identity from the open level, and from the file at the next flush.
+     *
+     * Deleting IS how a note is closed: the store is committed text, so the thought stays in history
+     * while the level stops carrying a marker nobody needs any more. Answers false for a note that
+     * belongs to a level that is not open — there is no actor to remove.
+     */
+    bool DeleteNote(const FGuid& Id);
+
     /** Every note the browser lists: the open level from its actors, every other level from disk. */
     TArray<FTheNoteRecord> CollectAllNotes() const;
 

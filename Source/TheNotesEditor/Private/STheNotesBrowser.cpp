@@ -5,11 +5,11 @@
 #include "Editor.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SCheckBox.h"
 #include "Widgets/Input/SSearchBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Text/STextBlock.h"
-#include "Widgets/Views/SHeaderRow.h"
 #include "Widgets/Views/STableRow.h"
 
 #include "TheNotesEditorSubsystem.h"
@@ -22,6 +22,8 @@ static const FName Author("Author");
 static const FName Collection("Collection");
 static const FName Title("Title");
 static const FName Level("Level");
+static const FName Created("Created");
+static const FName Updated("Updated");
 }
 
 namespace TheNotesBrowserLocal
@@ -38,13 +40,105 @@ FString ShortLevelName(const FString& PackageName)
     return Short;
 }
 
-bool Matches(const FTheNoteRecord& Record, const FString& Filter)
+/**
+ * Stamps are written in UTC, and a developer reads the clock on his wall.
+ *
+ * The offset is asked of the engine rather than stored: it is the difference between the two clocks
+ * right now, which is also the only form that survives the machine crossing a daylight-saving boundary
+ * mid-session. An empty stamp prints as nothing rather than as the first second of year one.
+ */
+FString LocalStamp(const FDateTime& Utc)
 {
-    if(Filter.IsEmpty())
+    if(Utc.GetTicks() == 0)
     {
-        return true;
+        return FString();
     }
-    return Record.Title.Contains(Filter) || Record.Body.Contains(Filter) || Record.Author.Contains(Filter) || Record.Collection.Contains(Filter) || Record.Level.Contains(Filter);
+    return (Utc + (FDateTime::Now() - FDateTime::UtcNow())).ToString(TEXT("%Y-%m-%d %H:%M"));
+}
+
+/**
+ * One term of the filter: either a field the user named, or a word to look for anywhere.
+ *
+ * `author:` and `level:` exist because those are the two questions a list of notes is actually asked,
+ * and a bare substring answers both of them wrongly — a level called Desert matches a note whose text
+ * merely says «desert».
+ */
+struct FTerm
+{
+    FName Field;
+    FString Value;
+
+    bool Matches(const FTheNoteRecord& Record) const
+    {
+        if(Field == TheNotesBrowserColumns::Author)
+        {
+            return Record.Author.Contains(Value);
+        }
+        if(Field == TheNotesBrowserColumns::Level)
+        {
+            return Record.Level.Contains(Value);
+        }
+        if(Field == TheNotesBrowserColumns::Collection)
+        {
+            return Record.Collection.Contains(Value);
+        }
+        return Record.Title.Contains(Value) || Record.Body.Contains(Value) || Record.Author.Contains(Value) || Record.Collection.Contains(Value) || Record.Level.Contains(Value);
+    }
+};
+
+/** Splits what was typed into terms. Every term has to match — narrowing is what a filter box is for. */
+TArray<FTerm> ParseFilter(const FString& Text)
+{
+    TArray<FTerm> Terms;
+    TArray<FString> Words;
+    Text.ParseIntoArrayWS(Words);
+
+    for(const FString& Word : Words)
+    {
+        FString Field;
+        FString Value;
+        if(Word.Split(TEXT(":"), &Field, &Value) && !Value.IsEmpty())
+        {
+            const FName AsField(*Field);
+            if(AsField == TheNotesBrowserColumns::Author || AsField == TheNotesBrowserColumns::Level || AsField == TheNotesBrowserColumns::Collection)
+            {
+                Terms.Add({AsField, Value});
+                continue;
+            }
+        }
+        Terms.Add({NAME_None, Word});
+    }
+    return Terms;
+}
+
+/** The text a column shows, which is also what it sorts on — so the eye and the order cannot disagree. */
+FString CellText(const FTheNoteRecord& Record, const FName& Column)
+{
+    if(Column == TheNotesBrowserColumns::Author)
+    {
+        return Record.Author;
+    }
+    if(Column == TheNotesBrowserColumns::Collection)
+    {
+        return Record.Collection;
+    }
+    if(Column == TheNotesBrowserColumns::Title)
+    {
+        return Record.Title;
+    }
+    if(Column == TheNotesBrowserColumns::Level)
+    {
+        return ShortLevelName(Record.Level);
+    }
+    if(Column == TheNotesBrowserColumns::Created)
+    {
+        return LocalStamp(Record.CreatedAt);
+    }
+    if(Column == TheNotesBrowserColumns::Updated)
+    {
+        return LocalStamp(Record.UpdatedAt);
+    }
+    return FString();
 }
 }
 
@@ -63,27 +157,7 @@ public:
 
     virtual TSharedRef<SWidget> GenerateWidgetForColumn(const FName& ColumnName) override
     {
-        FString Text;
-        if(!Record.IsValid())
-        {
-            Text = FString();
-        }
-        else if(ColumnName == TheNotesBrowserColumns::Author)
-        {
-            Text = Record->Author;
-        }
-        else if(ColumnName == TheNotesBrowserColumns::Collection)
-        {
-            Text = Record->Collection;
-        }
-        else if(ColumnName == TheNotesBrowserColumns::Title)
-        {
-            Text = Record->Title;
-        }
-        else if(ColumnName == TheNotesBrowserColumns::Level)
-        {
-            Text = TheNotesBrowserLocal::ShortLevelName(Record->Level);
-        }
+        const FString Text = Record.IsValid() ? TheNotesBrowserLocal::CellText(*Record, ColumnName) : FString();
 
         return SNew(SBox).Padding(FMargin(6.0f, 2.0f)).VAlign(VAlign_Center)[SNew(STextBlock).Text(FText::FromString(Text)).ToolTipText(Record.IsValid() ? FText::FromString(Record->Body) : FText::GetEmpty())];
     }
@@ -105,7 +179,22 @@ void STheNotesBrowser::Construct(const FArguments& InArgs)
 
     ChildSlot[SNew(SVerticalBox) +
               SVerticalBox::Slot().AutoHeight().Padding(4.0f)
-                  [SNew(SHorizontalBox) + SHorizontalBox::Slot().FillWidth(1.0f)[SNew(SSearchBox).HintText(LOCTEXT("FilterHint", "Filter by title, text, author, collection or level")).OnTextChanged(this, &STheNotesBrowser::HandleFilterChanged)] +
+                  [SNew(SHorizontalBox) +
+                      SHorizontalBox::Slot().FillWidth(1.0f)[SNew(SSearchBox).HintText(LOCTEXT("FilterHint", "Words to find, or author: / level: / collection: to name a field")).OnTextChanged(this, &STheNotesBrowser::HandleFilterChanged)] +
+                      SHorizontalBox::Slot()
+                          .AutoWidth()
+                          .Padding(6.0f, 0.0f, 0.0f, 0.0f)
+                          .VAlign(VAlign_Center)[SNew(SCheckBox)
+                                  .ToolTipText(LOCTEXT("ThisLevelTooltip", "Show only the notes standing in the level that is open"))
+                                  .OnCheckStateChanged(this, &STheNotesBrowser::HandleThisLevelChanged)[SNew(STextBlock).Text(LOCTEXT("ThisLevel", "This level"))]] +
+                      SHorizontalBox::Slot()
+                          .AutoWidth()
+                          .Padding(6.0f, 0.0f, 0.0f, 0.0f)
+                          .VAlign(VAlign_Center)[SNew(SButton)
+                                  .Text(LOCTEXT("Delete", "Delete"))
+                                  .ToolTipText(LOCTEXT("DeleteTooltip", "Remove the selected note. Its text stays in the history of the note files."))
+                                  .IsEnabled(this, &STheNotesBrowser::CanDelete)
+                                  .OnClicked(this, &STheNotesBrowser::HandleDeleteClicked)] +
                       SHorizontalBox::Slot()
                           .AutoWidth()
                           .Padding(4.0f, 0.0f, 0.0f, 0.0f)
@@ -116,10 +205,37 @@ void STheNotesBrowser::Construct(const FArguments& InArgs)
                       .OnGenerateRow(this, &STheNotesBrowser::MakeRow)
                       .OnMouseButtonDoubleClick(this, &STheNotesBrowser::HandleRowActivated)
                       .SelectionMode(ESelectionMode::Single)
-                      .HeaderRow(SNew(SHeaderRow) + SHeaderRow::Column(TheNotesBrowserColumns::Author).DefaultLabel(LOCTEXT("AuthorColumn", "Author")).FillWidth(0.18f) +
-                                 SHeaderRow::Column(TheNotesBrowserColumns::Collection).DefaultLabel(LOCTEXT("CollectionColumn", "Collection")).FillWidth(0.18f) +
-                                 SHeaderRow::Column(TheNotesBrowserColumns::Title).DefaultLabel(LOCTEXT("TitleColumn", "Title")).FillWidth(0.46f) +
-                                 SHeaderRow::Column(TheNotesBrowserColumns::Level).DefaultLabel(LOCTEXT("LevelColumn", "Level")).FillWidth(0.18f))]];
+                      .HeaderRow(SNew(SHeaderRow) +
+                                 SHeaderRow::Column(TheNotesBrowserColumns::Author)
+                                     .DefaultLabel(LOCTEXT("AuthorColumn", "Author"))
+                                     .FillWidth(0.14f)
+                                     .SortMode(this, &STheNotesBrowser::SortModeFor, TheNotesBrowserColumns::Author)
+                                     .OnSort(this, &STheNotesBrowser::HandleSort) +
+                                 SHeaderRow::Column(TheNotesBrowserColumns::Collection)
+                                     .DefaultLabel(LOCTEXT("CollectionColumn", "Collection"))
+                                     .FillWidth(0.14f)
+                                     .SortMode(this, &STheNotesBrowser::SortModeFor, TheNotesBrowserColumns::Collection)
+                                     .OnSort(this, &STheNotesBrowser::HandleSort) +
+                                 SHeaderRow::Column(TheNotesBrowserColumns::Title)
+                                     .DefaultLabel(LOCTEXT("TitleColumn", "Title"))
+                                     .FillWidth(0.34f)
+                                     .SortMode(this, &STheNotesBrowser::SortModeFor, TheNotesBrowserColumns::Title)
+                                     .OnSort(this, &STheNotesBrowser::HandleSort) +
+                                 SHeaderRow::Column(TheNotesBrowserColumns::Level)
+                                     .DefaultLabel(LOCTEXT("LevelColumn", "Level"))
+                                     .FillWidth(0.14f)
+                                     .SortMode(this, &STheNotesBrowser::SortModeFor, TheNotesBrowserColumns::Level)
+                                     .OnSort(this, &STheNotesBrowser::HandleSort) +
+                                 SHeaderRow::Column(TheNotesBrowserColumns::Created)
+                                     .DefaultLabel(LOCTEXT("CreatedColumn", "Written"))
+                                     .FillWidth(0.12f)
+                                     .SortMode(this, &STheNotesBrowser::SortModeFor, TheNotesBrowserColumns::Created)
+                                     .OnSort(this, &STheNotesBrowser::HandleSort) +
+                                 SHeaderRow::Column(TheNotesBrowserColumns::Updated)
+                                     .DefaultLabel(LOCTEXT("UpdatedColumn", "Changed"))
+                                     .FillWidth(0.12f)
+                                     .SortMode(this, &STheNotesBrowser::SortModeFor, TheNotesBrowserColumns::Updated)
+                                     .OnSort(this, &STheNotesBrowser::HandleSort))]];
 
     Refresh();
 }
@@ -161,6 +277,12 @@ void STheNotesBrowser::HandleFilterChanged(const FText& Text)
     Refresh();
 }
 
+void STheNotesBrowser::HandleThisLevelChanged(ECheckBoxState State)
+{
+    bThisLevelOnly = State == ECheckBoxState::Checked;
+    Refresh();
+}
+
 FReply STheNotesBrowser::HandleReloadClicked()
 {
     if(GEditor)
@@ -174,6 +296,47 @@ FReply STheNotesBrowser::HandleReloadClicked()
     return FReply::Handled();
 }
 
+bool STheNotesBrowser::CanDelete() const
+{
+    if(!ListView.IsValid() || !GEditor)
+    {
+        return false;
+    }
+
+    const TArray<TSharedPtr<FTheNoteRecord>> Selected = ListView->GetSelectedItems();
+    if(Selected.Num() != 1 || !Selected[0].IsValid())
+    {
+        return false;
+    }
+
+    // A note in a level that is not open has no actor to destroy, and rewriting somebody's file from
+    // here would be a change with nothing on screen to show for it.
+    const UTheNotesEditorSubsystem* Subsystem = GEditor->GetEditorSubsystem<UTheNotesEditorSubsystem>();
+    return Subsystem && Selected[0]->Level == Subsystem->GetTrackedLevel();
+}
+
+FReply STheNotesBrowser::HandleDeleteClicked()
+{
+    if(CanDelete())
+    {
+        UTheNotesEditorSubsystem* Subsystem = GEditor->GetEditorSubsystem<UTheNotesEditorSubsystem>();
+        Subsystem->DeleteNote(ListView->GetSelectedItems()[0]->Id);
+    }
+    return FReply::Handled();
+}
+
+void STheNotesBrowser::HandleSort(EColumnSortPriority::Type Priority, const FName& Column, EColumnSortMode::Type Mode)
+{
+    SortColumn = Column;
+    SortMode = Mode;
+    Refresh();
+}
+
+EColumnSortMode::Type STheNotesBrowser::SortModeFor(FName Column) const
+{
+    return SortColumn == Column ? SortMode : EColumnSortMode::None;
+}
+
 void STheNotesBrowser::Refresh()
 {
     Rows.Reset();
@@ -183,14 +346,37 @@ void STheNotesBrowser::Refresh()
         UTheNotesEditorSubsystem* Subsystem = GEditor->GetEditorSubsystem<UTheNotesEditorSubsystem>();
         if(Subsystem)
         {
+            const TArray<TheNotesBrowserLocal::FTerm> Terms = TheNotesBrowserLocal::ParseFilter(Filter);
+            const FString& OpenLevel = Subsystem->GetTrackedLevel();
+
             for(const FTheNoteRecord& Record : Subsystem->CollectAllNotes())
             {
-                if(TheNotesBrowserLocal::Matches(Record, Filter))
+                if(bThisLevelOnly && Record.Level != OpenLevel)
                 {
-                    Rows.Add(MakeShared<FTheNoteRecord>(Record));
+                    continue;
                 }
+                if(Terms.ContainsByPredicate([&Record](const TheNotesBrowserLocal::FTerm& Term) { return !Term.Matches(Record); }))
+                {
+                    continue;
+                }
+                Rows.Add(MakeShared<FTheNoteRecord>(Record));
             }
         }
+    }
+
+    // Unsorted means the order CollectAllNotes produced, which is author then collection then title —
+    // a sensible list rather than the order the files happened to be read in.
+    if(!SortColumn.IsNone())
+    {
+        const FName Column = SortColumn;
+        const bool bAscending = SortMode != EColumnSortMode::Descending;
+        Rows.Sort(
+            [&Column, bAscending](const TSharedPtr<FTheNoteRecord>& A, const TSharedPtr<FTheNoteRecord>& B)
+            {
+                const FString Left = A.IsValid() ? TheNotesBrowserLocal::CellText(*A, Column) : FString();
+                const FString Right = B.IsValid() ? TheNotesBrowserLocal::CellText(*B, Column) : FString();
+                return bAscending ? Left < Right : Right < Left;
+            });
     }
 
     if(ListView.IsValid())

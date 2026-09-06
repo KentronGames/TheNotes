@@ -54,6 +54,19 @@ public:
     FColor NoteIconTint;
 
     /**
+     * A colour per collection, for telling one kind of note from another across a scene — a blocker from
+     * an idea, say. A collection named here is drawn in its colour; anything else, and every note with no
+     * collection at all, takes the tint above.
+     *
+     * Ships empty, which is what makes the feature invisible until a project wants it.
+     */
+    UPROPERTY(EditAnywhere, config, Category = "Notes")
+    TMap<FString, FColor> CollectionIconTints;
+
+    /** The colour a note of this collection is marked in: its own if it has one, the general tint if not. */
+    static FColor ResolvedIconTint(const FString& Collection);
+
+    /**
      * The actor class spawned for a note. A project with its own interaction system points this at
      * a subclass carrying its components; the plugin itself never names another module's types.
      */

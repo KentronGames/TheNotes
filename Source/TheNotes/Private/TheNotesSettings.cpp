@@ -37,6 +37,24 @@ FString UTheNotesSettings::ResolvedNotesDirectory()
     return FPaths::ConvertRelativePathToFull(Directory);
 }
 
+FColor UTheNotesSettings::ResolvedIconTint(const FString& Collection)
+{
+    const UTheNotesSettings* Settings = GetDefault<UTheNotesSettings>();
+    if(!Settings)
+    {
+        return DefaultIconTint();
+    }
+
+    if(!Collection.IsEmpty())
+    {
+        if(const FColor* Named = Settings->CollectionIconTints.Find(Collection))
+        {
+            return *Named;
+        }
+    }
+    return Settings->NoteIconTint;
+}
+
 TSubclassOf<ATheNote> UTheNotesSettings::ResolvedNoteActorClass()
 {
     const UTheNotesSettings* Settings = GetDefault<UTheNotesSettings>();

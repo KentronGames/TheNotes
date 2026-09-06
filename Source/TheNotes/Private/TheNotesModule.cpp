@@ -57,10 +57,10 @@ void FTheNotesModule::StartupModule()
 
 void FTheNotesModule::ShutdownModule()
 {
-    Sprite.Reset();
+    Sprites.Reset();
 }
 
-UTexture2D* FTheNotesModule::DefaultSprite()
+UTexture2D* FTheNotesModule::SpriteTinted(const FColor& Tint)
 {
     FTheNotesModule* Module = FModuleManager::GetModulePtr<FTheNotesModule>(TEXT("TheNotes"));
     if(!Module)
@@ -68,42 +68,43 @@ UTexture2D* FTheNotesModule::DefaultSprite()
         return nullptr;
     }
 
-    const UTheNotesSettings* Settings = GetDefault<UTheNotesSettings>();
-    const FColor Tint = Settings ? Settings->NoteIconTint : UTheNotesSettings::DefaultIconTint();
-
-    // Rebuilt rather than re-tinted in place: the colour lives in the pixels, so a changed setting is a
-    // different texture, and the one we hold is keyed by the tint it was built with.
-    if(!Module->Sprite.IsValid() || Module->SpriteTint != Tint)
+    if(const TStrongObjectPtr<UTexture2D>* Held = Module->Sprites.Find(Tint.ToPackedARGB()))
     {
-        const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("TheNotes"));
-        if(!Plugin.IsValid())
+        if(Held->IsValid())
         {
-            return nullptr;
-        }
-
-        const FString File = Plugin->GetBaseDir() / TEXT("Resources/Icons/T_DevNote.png");
-        FImage Image;
-        if(!FImageUtils::LoadImage(*File, Image))
-        {
-            // Silence here would look exactly like a note that failed to spawn, so say which file
-            // was missing rather than leaving an unmarked point in space.
-            UE_LOG(LogTheNotes, Warning, TEXT("Cannot read the note sprite at %s; notes will have no icon"), *File);
-            return nullptr;
-        }
-
-        // The shift is arithmetic on the bytes a colour picker shows, so the image is put in that form
-        // first — whatever the PNG happened to be decoded as.
-        Image.ChangeFormat(ERawImageFormat::BGRA8, EGammaSpace::sRGB);
-        TheNotesModuleLocal::ShiftAmberTo(Image, Tint);
-
-        Module->Sprite.Reset(FImageUtils::CreateTexture2DFromImage(Image));
-        Module->SpriteTint = Tint;
-        if(!Module->Sprite.IsValid())
-        {
-            UE_LOG(LogTheNotes, Warning, TEXT("Cannot build the note sprite from %s; notes will have no icon"), *File);
+            return Held->Get();
         }
     }
-    return Module->Sprite.Get();
+
+    const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("TheNotes"));
+    if(!Plugin.IsValid())
+    {
+        return nullptr;
+    }
+
+    const FString File = Plugin->GetBaseDir() / TEXT("Resources/Icons/T_DevNote.png");
+    FImage Image;
+    if(!FImageUtils::LoadImage(*File, Image))
+    {
+        // Silence here would look exactly like a note that failed to spawn, so say which file
+        // was missing rather than leaving an unmarked point in space.
+        UE_LOG(LogTheNotes, Warning, TEXT("Cannot read the note sprite at %s; notes will have no icon"), *File);
+        return nullptr;
+    }
+
+    // The shift is arithmetic on the bytes a colour picker shows, so the image is put in that form
+    // first — whatever the PNG happened to be decoded as.
+    Image.ChangeFormat(ERawImageFormat::BGRA8, EGammaSpace::sRGB);
+    TheNotesModuleLocal::ShiftAmberTo(Image, Tint);
+
+    TStrongObjectPtr<UTexture2D> Built(FImageUtils::CreateTexture2DFromImage(Image));
+    if(!Built.IsValid())
+    {
+        UE_LOG(LogTheNotes, Warning, TEXT("Cannot build the note sprite from %s; notes will have no icon"), *File);
+        return nullptr;
+    }
+
+    return Module->Sprites.Add(Tint.ToPackedARGB(), MoveTemp(Built)).Get();
 }
 
 IMPLEMENT_MODULE(FTheNotesModule, TheNotes)

@@ -36,14 +36,16 @@ public:
     void ApplyRecord(const FTheNoteRecord& InRecord);
 
 #if WITH_EDITORONLY_DATA
-    class UBillboardComponent* GetSprite() const
-    {
-        return SpriteComponent;
-    }
+    class UBillboardComponent* GetSprite() const { return SpriteComponent; }
 #endif
 
 protected:
     virtual void OnConstruction(const FTransform& Transform) override;
+
+#if WITH_EDITOR
+    /** Retyping the collection has to move the mark to that collection's colour, which is built at construction. */
+    virtual void PostEditChangeProperty(struct FPropertyChangedEvent& Event) override;
+#endif
 
 private:
 #if WITH_EDITORONLY_DATA

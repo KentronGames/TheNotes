@@ -371,7 +371,13 @@ void FTheNotesViewportLabels::Draw(UCanvas* Canvas, APlayerController* Controlle
 {
     using namespace TheNotesViewportLabelsLocal;
 
-    if(!Canvas || !GEditor || !HoveredNote.IsValid())
+    if(!Canvas || !GEditor)
+    {
+        return;
+    }
+
+    // Three ways a panel comes to be drawn, and the cheap exit is that none of them holds.
+    if(!HoveredNote.IsValid() && !PinnedNote.IsValid() && !bShowAll)
     {
         return;
     }
@@ -392,37 +398,52 @@ void FTheNotesViewportLabels::Draw(UCanvas* Canvas, APlayerController* Controlle
         return;
     }
 
+    const UTheNotesViewSettings& View = UTheNotesViewSettings::Get();
+
     // Held in a local: GetLevelNotes returns by value, and a pointer into the temporary would
     // dangle the moment the full expression ended.
     const TArray<ATheNote*> Notes = Subsystem->GetLevelNotes();
-    ATheNote* const* Found = Notes.FindByPredicate([this](const ATheNote* Candidate) { return Candidate->Record.Id == HoveredNote; });
-    if(!Found)
+
+    for(const ATheNote* Note : Notes)
     {
-        return;
+        const bool bOpened = Note->Record.Id == HoveredNote || Note->Record.Id == PinnedNote;
+        if(!bOpened && !bShowAll)
+        {
+            continue;
+        }
+
+        // The panel hangs off the note, not off the cursor: it is the label of that note, and a panel
+        // that follows the mouse reads as a tooltip for the viewport rather than for the thing in it.
+        const FVector Anchor = Canvas->Project(Note->GetActorLocation(), false);
+        if(Anchor.Z <= 0.0f)
+        {
+            continue;
+        }
+
+        // Caps are a setting, and either way the stored text is untouched: this is how a note is shown,
+        // not what it says.
+        const FString Authored = Note->Record.Title.IsEmpty() ? FString(TEXT("DEV Note")) : Note->Record.Title;
+        const FString Title = View.bUppercaseTitle ? Authored.ToUpper() : Authored;
+        const FString Author = View.bUppercaseAuthor ? Note->Record.Author.ToUpper() : Note->Record.Author;
+
+        // A note shown only because everything is shown gets its title and nothing else. The body is
+        // what makes one panel worth reading and a dozen of them a wall in front of the level.
+        const TArray<FString> Body = bOpened ? LayOutBody(Note->Record.Body, BodyFont(), Canvas->GetDPIScale()) : TArray<FString>();
+
+        const FVector2D Size = DrawPanel(Canvas, Title, Body, bOpened ? Author : FString(), FVector2D(Anchor.X, Anchor.Y + View.PanelDrop * Canvas->GetDPIScale()));
+
+        if(CVarDebugHover.GetValueOnGameThread() != 0)
+        {
+            UE_LOG(LogTheNotes, Log, TEXT("panel: %.0fx%.0f at (%.0f,%.0f) canvas=%dx%d dpi=%.2f"), Size.X, Size.Y, Anchor.X, Anchor.Y, Canvas->SizeX, Canvas->SizeY, Canvas->GetDPIScale());
+        }
     }
-    const ATheNote* Note = *Found;
+}
 
-    // The panel hangs off the note, not off the cursor: it is the label of that note, and a panel
-    // that follows the mouse reads as a tooltip for the viewport rather than for the thing in it.
-    const FVector Anchor = Canvas->Project(Note->GetActorLocation(), false);
-    if(Anchor.Z <= 0.0f)
-    {
-        return;
-    }
-
-    // Caps are a setting, and either way the stored text is untouched: this is how a note is shown,
-    // not what it says.
-    const UTheNotesViewSettings& View = UTheNotesViewSettings::Get();
-    const FString Authored = Note->Record.Title.IsEmpty() ? FString(TEXT("DEV Note")) : Note->Record.Title;
-    const FString Title = View.bUppercaseTitle ? Authored.ToUpper() : Authored;
-    const FString Author = View.bUppercaseAuthor ? Note->Record.Author.ToUpper() : Note->Record.Author;
-
-    const FVector2D Size = DrawPanel(Canvas, Title, LayOutBody(Note->Record.Body, BodyFont(), Canvas->GetDPIScale()), Author, FVector2D(Anchor.X, Anchor.Y + View.PanelDrop * Canvas->GetDPIScale()));
-
-    if(CVarDebugHover.GetValueOnGameThread() != 0)
-    {
-        UE_LOG(LogTheNotes, Log, TEXT("panel: %.0fx%.0f at (%.0f,%.0f) canvas=%dx%d dpi=%.2f"), Size.X, Size.Y, Anchor.X, Anchor.Y, Canvas->SizeX, Canvas->SizeY, Canvas->GetDPIScale());
-    }
+void FTheNotesViewportLabels::TogglePinnedToHovered()
+{
+    // Pinning what is already pinned unpins it, and so does pinning nothing: one command, and the way
+    // out of it is the same gesture that got in.
+    PinnedNote = (HoveredNote.IsValid() && HoveredNote != PinnedNote) ? HoveredNote : FGuid();
 }
 
 FVector2D FTheNotesViewportLabels::MeasurePanel(const FString& Title, const TArray<FString>& Body, const FString& Author)
