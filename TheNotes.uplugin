@@ -1,0 +1,31 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "The Notes",
+	"Description": "Developer notes placed directly in the world. A note is an object in the scene with its own icon, a title and a body; it is authored and read in the editor without entering Play Mode. Notes are stored as plain text outside the content tree, one file per author and level, so the map is never touched and two people never write the same file.",
+	"Category": "The",
+	"CreatedBy": "Kentron Cowboys",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"EnabledByDefault": true,
+	"Modules": [
+		{
+			"Name": "TheNotes",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "TheNotesEditor",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit",
+			"TargetAllowList": [ "Editor" ]
+		}
+	]
+}
