@@ -331,6 +331,17 @@ bool FTheNotesViewportLabels::Tick(float DeltaTime)
         return true;
     }
 
+    // Play-in-editor makes the GAME viewport the active one, and a game viewport never renders hit
+    // proxies — its proxy render target is never allocated. Asking one for a hit proxy therefore
+    // builds a render pass with a null colour target and trips check(ColorRT) on the render thread,
+    // taking the whole editor down. Compare against the PIE viewport rather than testing PlayWorld:
+    // Simulate also has a play world, but keeps the level viewport active, and labels work fine there.
+    if(Viewport == GEditor->GetPIEViewport())
+    {
+        HoveredNote.Invalidate();
+        return true;
+    }
+
     const FIntPoint Cursor(Viewport->GetMouseX(), Viewport->GetMouseY());
     const bool bDebug = CVarDebugHover.GetValueOnGameThread() != 0;
     if(Cursor == LastCursor && !bDebug)
