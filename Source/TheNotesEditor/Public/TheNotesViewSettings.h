@@ -17,7 +17,7 @@
  *
  * Every value here has a default that works before anyone opens this page.
  */
-UCLASS(config = EditorPerProjectUserSettings, meta = (DisplayName = "The Notes (View)"))
+UCLASS(config = EditorPerProjectUserSettings, meta = (DisplayName = "#The Notes (View)"))
 class THENOTESEDITOR_API UTheNotesViewSettings : public UDeveloperSettings
 {
     GENERATED_BODY()
