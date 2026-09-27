@@ -10,12 +10,14 @@
  * What the whole team shares about notes: where they are kept, what a note looks like in the world,
  * and which actor class carries one. Lives in DefaultGame.ini because a packaged build reads it too.
  */
-UCLASS(config = Game, defaultconfig, meta = (DisplayName = "#The Notes"))
+UCLASS(config = Game, defaultconfig, meta = (DisplayName = "#Notes"))
 class THENOTES_API UTheNotesSettings : public UDeveloperSettings
 {
     GENERATED_BODY()
 
 public:
+    virtual FName GetCategoryName() const override { return TEXT("#The"); }
+
     UTheNotesSettings();
 
     static const TCHAR* DefaultNotesDirectory() { return TEXT("DevNotes"); }
@@ -85,12 +87,14 @@ public:
  * settings ini and not in anything committed — a shared author name would sign everyone's notes
  * with whoever configured the project first.
  */
-UCLASS(config = EditorPerProjectUserSettings, meta = (DisplayName = "#The Notes (this developer)"))
+UCLASS(config = EditorPerProjectUserSettings, meta = (DisplayName = "#Notes (this developer)"))
 class THENOTES_API UTheNotesUserSettings : public UDeveloperSettings
 {
     GENERATED_BODY()
 
 public:
+    virtual FName GetCategoryName() const override { return TEXT("#The"); }
+
     UTheNotesUserSettings();
 
     /** The name new notes are signed with. Empty means the account this editor runs under. */

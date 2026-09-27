@@ -17,12 +17,14 @@
  *
  * Every value here has a default that works before anyone opens this page.
  */
-UCLASS(config = EditorPerProjectUserSettings, meta = (DisplayName = "#The Notes (View)"))
+UCLASS(config = EditorPerProjectUserSettings, meta = (DisplayName = "#Notes (View)"))
 class THENOTESEDITOR_API UTheNotesViewSettings : public UDeveloperSettings
 {
     GENERATED_BODY()
 
 public:
+    virtual FName GetCategoryName() const override { return TEXT("#The"); }
+
     UTheNotesViewSettings();
 
     /** Room between the panel's border and its text, in points before the display scale is applied. */
