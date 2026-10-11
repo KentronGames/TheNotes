@@ -125,4 +125,4 @@ text files you can read without the editor.
 
 ## Licence
 
-© 2026 Kentron Cowboys. All rights reserved.
+MIT — © 2026 Kentron Cowboys. The full text is in [`LICENSE`](LICENSE).
